@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline indirect enum LDAP_LDAPMessage_protocolOp_Choice: DERImplicitlyTaggable, DERParseable, DERSerializable, Hashable, Sendable {
+@usableFromInline indirect enum LDAP_LDAPMessage_protocolOp_Choice: DERImplicitlyTaggable, BERParseable, DERParseable, DERSerializable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .enumerated }
         case bindRequest(LDAP_BindRequest)
     case bindResponse(LDAP_BindResponse)

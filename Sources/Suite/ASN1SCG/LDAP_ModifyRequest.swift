@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_ModifyRequest: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_ModifyRequest: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var object: ASN1OctetString
     @usableFromInline var changes: [LDAP_ModifyRequest_changes_Sequence]
@@ -12,9 +12,9 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let object: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
-            let changes: [LDAP_ModifyRequest_changes_Sequence] = try DER.sequence(of: LDAP_ModifyRequest_changes_Sequence.self, identifier: .sequence, nodes: &nodes)
+            let changes: [LDAP_ModifyRequest_changes_Sequence] = try BER.sequence(of: LDAP_ModifyRequest_changes_Sequence.self, identifier: .sequence, nodes: &nodes)
             return LDAP_ModifyRequest(object: object, changes: changes)
         }
     }

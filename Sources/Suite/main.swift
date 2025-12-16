@@ -39,15 +39,23 @@ public class Console {
      if (data != serializer.serializedBytes) { throw "DER <-> DirectoryString lacks equality properties." }
   }
 
-  // Commented out - LDAP types were in deleted XSeries
-  // public static func showLDAPMessage(data: Array<UInt8>) throws {
-  //    let msg: LDAP_LDAPMessage? = try LDAP_LDAPMessage(derEncoded: data)
-  //    var serializer = DER.Serializer()
-  //    try msg!.serialize(into: &serializer)
-  //    print(": LDAPMessage.DER \(data)")
-  //    print(": LDAPMessage ⟼ \(msg!)\n")
-  //    if (data != serializer.serializedBytes) { throw "DER <-> LDAPMessage lacks equality properties." }
-  // }
+  
+
+  public static func showLDAPMessage(data: Array<UInt8>) throws {
+     print("Debug: showLDAPMessage")
+     let root = try BER.parse(data)
+     let msg: LDAP_LDAPMessage? = try LDAP_LDAPMessage(derEncoded: root, withIdentifier: root.identifier)
+     var serializer = DER.Serializer()
+     try msg!.serialize(into: &serializer)
+     print(": LDAPMessage.DER \(data)")
+     print(": LDAPMessage ⟼ \(msg!)\n")
+     if (data != serializer.serializedBytes) {
+        print(": [WARN] LDAPMessage bytes changed after re-encoding (BER -> canonical DER expected).")
+     }
+     let roundTripRoot = try BER.parse(serializer.serializedBytes)
+     let roundTrip: LDAP_LDAPMessage = try LDAP_LDAPMessage(derEncoded: roundTripRoot, withIdentifier: roundTripRoot.identifier)
+     if (msg! != roundTrip) { throw "LDAPMessage round-trip changed semantic value." }
+  }
 
   public static func showCHATMessage(data: Array<UInt8>) throws {
      let msg: CHAT_CHATMessage? = try CHAT_CHATMessage(derEncoded: data)
@@ -124,16 +132,15 @@ public class Console {
      if (data != serializer.serializedBytes) { throw "DER <-> Pentanomial lacks equality properties." }
   }
 
-  // Commented out - LDAP types were in deleted XSeries
-  // public static func showAttributeValueAssertion(data: Array<UInt8>) throws {
-  //    print("Debug: showAttributeValueAssertion")
-  //    let val: LDAP_AttributeValueAssertion? = try LDAP_AttributeValueAssertion(derEncoded: data)
-  //    var serializer = DER.Serializer()
-  //    try val!.serialize(into: &serializer)
-  //    print(": AttributeValueAssertion.DER \(data)")
-  //    print(": AttributeValueAssertion ⟼ \(val!)\n")
-  //    if (data != serializer.serializedBytes) { throw "DER <-> AttributeValueAssertion lacks equality properties." }
-  // }
+  public static func showAttributeValueAssertion(data: Array<UInt8>) throws {
+     print("Debug: showAttributeValueAssertion")
+     let val: LDAP_AttributeValueAssertion? = try LDAP_AttributeValueAssertion(derEncoded: data)
+     var serializer = DER.Serializer()
+     try val!.serialize(into: &serializer)
+     print(": AttributeValueAssertion.DER \(data)")
+     print(": AttributeValueAssertion ⟼ \(val!)\n")
+     if (data != serializer.serializedBytes) { throw "DER <-> AttributeValueAssertion lacks equality properties." }
+  }
 
 
   public static func showIntMatrix(data: Array<UInt8>) throws {
@@ -158,6 +165,9 @@ public class Console {
 
   public static func suite() -> Int32 {
      do {
+
+      // let bytes: [UInt8] = [ 0x30, 0x3e, 0x02, 0x01, 0x02, 0x63, 0x39, 0x04, 0x11, 0x64, 0x63, 0x3d, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2c, 0x64, 0x63, 0x3d, 0x63, 0x6f, 0x6d, 0x0a, 0x01, 0x02, 0x0a, 0x01, 0x00, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00, 0x01, 0x01, 0x00, 0xa3, 0x0f, 0x04, 0x03, 0x75, 0x69, 0x64, 0x04, 0x08, 0x65, 0x69, 0x6e, 0x73, 0x74, 0x65, 0x69, 0x6e, 0x30, 0x04, 0x04, 0x02, 0x64, 0x6e]
+      //  try showLDAPMessage(data: bytes)
        try verifyOID()
        try showPentanomial(data: [48, 9, 2, 1, 1, 2, 1, 2, 2, 1, 3])
        // try showAttributeValueAssertion(data: [48, 14, 4, 2, 99, 110, 4, 8, 74, 111, 104, 110, 32, 68, 111, 101])
@@ -170,7 +180,7 @@ public class Console {
        try verifyX509(file: "ca.crt")
        try showContentInfo(file: "data.bin")
        try showDirectoryString(data: [19,3,49,50,51])
-       // try showLDAPMessage(data: [48,16,2,1,1,96,9,2,1,1,4,0,128,2,49,50,160,0])
+       try showLDAPMessage(data: [48,16,2,1,1,96,9,2,1,1,4,0,128,2,49,50,160,0])
        try showCHATMessage(data: [48,27,2,1,1,48,0,160,20,4,3,53,72,84,4,7,53,72,84,46,99,115,114,4,4,48,48,48,48])
        try showName(data: [48,13,49,11,48,9,6,3,85,4,6,19,2,85,65])
        try showName(data: [48,0])

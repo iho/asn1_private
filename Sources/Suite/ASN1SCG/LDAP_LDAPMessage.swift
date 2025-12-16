@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_LDAPMessage: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_LDAPMessage: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var messageID: ArraySlice<UInt8>
     @usableFromInline var protocolOp: LDAP_LDAPMessage_protocolOp_Choice
@@ -14,10 +14,10 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let messageID: ArraySlice<UInt8> = try ArraySlice<UInt8>(derEncoded: &nodes)
             let protocolOp: LDAP_LDAPMessage_protocolOp_Choice = try LDAP_LDAPMessage_protocolOp_Choice(derEncoded: &nodes)
-            let controls: LDAP_Controls? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
+            let controls: LDAP_Controls? = try BER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
             return LDAP_LDAPMessage(messageID: messageID, protocolOp: protocolOp, controls: controls)
         }
     }

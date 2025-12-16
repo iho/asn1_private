@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_SaslCredentials: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_SaslCredentials: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var mechanism: ASN1OctetString
     @usableFromInline var credentials: ASN1OctetString?
@@ -12,7 +12,7 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let mechanism: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
             let credentials: ASN1OctetString? = try ASN1OctetString(derEncoded: &nodes)
             return LDAP_SaslCredentials(mechanism: mechanism, credentials: credentials)

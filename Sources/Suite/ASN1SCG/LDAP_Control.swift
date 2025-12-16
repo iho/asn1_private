@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_Control: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_Control: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var controlType: ASN1OctetString
     @usableFromInline var criticality: Bool
@@ -14,9 +14,9 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let controlType: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
-            let criticality: Bool = try DER.decodeDefault(&nodes, defaultValue: false)
+            let criticality: Bool = try BER.decodeDefault(&nodes, defaultValue: false)
             let controlValue: ASN1OctetString? = try ASN1OctetString(derEncoded: &nodes)
             return LDAP_Control(controlType: controlType, criticality: criticality, controlValue: controlValue)
         }

@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_LDAPResult: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_LDAPResult: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var resultCode: LDAP_LDAPResult_resultCode_Enum
     @usableFromInline var matchedDN: ASN1OctetString
@@ -16,11 +16,11 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let resultCode: LDAP_LDAPResult_resultCode_Enum = try LDAP_LDAPResult_resultCode_Enum(derEncoded: &nodes)
             let matchedDN: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
             let diagnosticMessage: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
-            let referral: LDAP_Referral? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 3, tagClass: .contextSpecific))
+            let referral: LDAP_Referral? = try BER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 3, tagClass: .contextSpecific))
             return LDAP_LDAPResult(resultCode: resultCode, matchedDN: matchedDN, diagnosticMessage: diagnosticMessage, referral: referral)
         }
     }

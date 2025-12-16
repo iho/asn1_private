@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline indirect enum LDAP_SubstringFilter_substrings_Choice: DERImplicitlyTaggable, DERParseable, DERSerializable, Hashable, Sendable {
+@usableFromInline indirect enum LDAP_SubstringFilter_substrings_Choice: DERImplicitlyTaggable, BERParseable, DERParseable, DERSerializable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .enumerated }
         case initial(ASN1OctetString)
     case any(ASN1OctetString)

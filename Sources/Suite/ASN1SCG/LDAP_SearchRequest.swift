@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_SearchRequest: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_SearchRequest: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var baseObject: ASN1OctetString
     @usableFromInline var scope: LDAP_SearchRequest_scope_Enum
@@ -24,13 +24,13 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let baseObject: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
             let scope: LDAP_SearchRequest_scope_Enum = try LDAP_SearchRequest_scope_Enum(derEncoded: &nodes)
             let derefAliases: LDAP_SearchRequest_derefAliases_Enum = try LDAP_SearchRequest_derefAliases_Enum(derEncoded: &nodes)
             let sizeLimit: ArraySlice<UInt8> = try ArraySlice<UInt8>(derEncoded: &nodes)
             let timeLimit: ArraySlice<UInt8> = try ArraySlice<UInt8>(derEncoded: &nodes)
-            let typesOnly: Bool = try DER.decodeDefault(&nodes, defaultValue: false)
+            let typesOnly: Bool = try BER.decodeDefault(&nodes, defaultValue: false)
             let filter: LDAP_Filter = try LDAP_Filter(derEncoded: &nodes)
             let attributes: LDAP_AttributeSelection = try LDAP_AttributeSelection(derEncoded: &nodes)
             return LDAP_SearchRequest(baseObject: baseObject, scope: scope, derefAliases: derefAliases, sizeLimit: sizeLimit, timeLimit: timeLimit, typesOnly: typesOnly, filter: filter, attributes: attributes)

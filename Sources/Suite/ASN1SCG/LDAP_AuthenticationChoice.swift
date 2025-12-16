@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline indirect enum LDAP_AuthenticationChoice: DERImplicitlyTaggable, DERParseable, DERSerializable, Hashable, Sendable {
+@usableFromInline indirect enum LDAP_AuthenticationChoice: DERImplicitlyTaggable, BERParseable, DERParseable, DERSerializable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .enumerated }
         case simple(ASN1OctetString)
     case sasl(LDAP_SaslCredentials)

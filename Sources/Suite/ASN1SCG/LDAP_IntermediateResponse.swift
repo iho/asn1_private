@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_IntermediateResponse: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_IntermediateResponse: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var responseName: ASN1OctetString?
     @usableFromInline var responseValue: ASN1OctetString?
@@ -12,9 +12,9 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
-            let responseName: ASN1OctetString? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
-            let responseValue: ASN1OctetString? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 1, tagClass: .contextSpecific))
+        self = try BER.sequence(root, identifier: identifier) { nodes in
+            let responseName: ASN1OctetString? = try BER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
+            let responseValue: ASN1OctetString? = try BER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 1, tagClass: .contextSpecific))
             return LDAP_IntermediateResponse(responseName: responseName, responseValue: responseValue)
         }
     }

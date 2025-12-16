@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_ModifyDNRequest: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_ModifyDNRequest: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var entry: ASN1OctetString
     @usableFromInline var newrdn: ASN1OctetString
@@ -16,11 +16,11 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let entry: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
             let newrdn: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
-            let deleteoldrdn: Bool = try DER.decodeDefault(&nodes, defaultValue: false)
-            let newSuperior: ASN1OctetString? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
+            let deleteoldrdn: Bool = try BER.decodeDefault(&nodes, defaultValue: false)
+            let newSuperior: ASN1OctetString? = try BER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: 0, tagClass: .contextSpecific))
             return LDAP_ModifyDNRequest(entry: entry, newrdn: newrdn, deleteoldrdn: deleteoldrdn, newSuperior: newSuperior)
         }
     }

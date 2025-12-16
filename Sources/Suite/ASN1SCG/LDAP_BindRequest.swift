@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_BindRequest: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_BindRequest: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var version: ArraySlice<UInt8>
     @usableFromInline var name: ASN1OctetString
@@ -14,7 +14,7 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let version: ArraySlice<UInt8> = try ArraySlice<UInt8>(derEncoded: &nodes)
             let name: ASN1OctetString = try ASN1OctetString(derEncoded: &nodes)
             let authentication: LDAP_AuthenticationChoice = try LDAP_AuthenticationChoice(derEncoded: &nodes)

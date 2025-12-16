@@ -126,28 +126,28 @@ import Foundation
   # Vector Decoder
 
   def emitSequenceDecoderBodyElement(:OPTIONAL, plicit, no, name, type) when plicit == "Implicit", do:
-      "let #{name}: #{type}? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific))"
+      "let #{name}: #{type}? = try #{codec()}.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific))"
   def emitSequenceDecoderBodyElement(:OPTIONAL, plicit, no, name, type) when plicit == "Explicit", do:
-      "let #{name}: #{type}? = try DER.optionalExplicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in return try #{type}(derEncoded: node) }"
+      "let #{name}: #{type}? = try #{codec()}.optionalExplicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in return try #{type}(derEncoded: node) }"
   def emitSequenceDecoderBodyElement(_, plicit, no, name, type) when plicit == "Explicit", do:
-      "let #{name}: #{type} = try DER.explicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in return try #{type}(derEncoded: node) }"
+      "let #{name}: #{type} = try #{codec()}.explicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in return try #{type}(derEncoded: node) }"
   def emitSequenceDecoderBodyElement(_, plicit, no, name, type) when plicit == "Implicit", do:
-      "let #{name}: #{type} = (try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific)))!"
+      "let #{name}: #{type} = (try #{codec()}.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific)))!"
   def emitSequenceDecoderBodyElement(:OPTIONAL, _, _, name, "ASN1Any"), do:
-      "let #{name}: ASN1Any? = nodes.next().map { ASN1Any(derEncoded: $0) }"
+      "let #{name}: ASN1Any? = nodes.next().map { ASN1Any(#{codec_init()}Encoded: $0) }"
   def emitSequenceDecoderBodyElement(_, _, _, name, "Bool"), do:
-      "let #{name}: Bool = try DER.decodeDefault(&nodes, defaultValue: false)"
+      "let #{name}: Bool = try #{codec()}.decodeDefault(&nodes, defaultValue: false)"
   def emitSequenceDecoderBodyElement(optional, _, _, name, type), do:
       "let #{name}: #{type}#{opt(optional)} = try #{type}(derEncoded: &nodes)"
 
   def emitSequenceDecoderBodyElementArray(:OPTIONAL, plicit, no, name, type, spec) when plicit == "Explicit" and no != [] and (spec == "set" or spec == "sequence"), do:
-      "let #{name}: [#{type}]? = try DER.optionalExplicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in try DER.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: node) }"
+      "let #{name}: [#{type}]? = try #{codec()}.optionalExplicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in try #{codec()}.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: node) }"
   def emitSequenceDecoderBodyElementArray(_, plicit, no, name, type, spec) when plicit == "Implicit" and no != [] and (spec == "set" or spec == "sequence"), do:
-      "let #{name}: [#{type}] = try DER.#{spec}(of: #{type}.self, identifier: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific), nodes: &nodes)"
+      "let #{name}: [#{type}] = try #{codec()}.#{spec}(of: #{type}.self, identifier: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific), nodes: &nodes)"
   def emitSequenceDecoderBodyElementArray(_, _, no, name, type, spec) when no != [] and (spec == "set" or spec == "sequence"), do:
-      "let #{name}: [#{type}] = try DER.explicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in try DER.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: node) }"
+      "let #{name}: [#{type}] = try #{codec()}.explicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in try #{codec()}.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: node) }"
   def emitSequenceDecoderBodyElementArray(optional, _, no, name, type, spec) when no == [], do:
-      "let #{name}: [#{type}]#{opt(optional)} = try DER.#{spec}(of: #{type}.self, identifier: .#{spec}, nodes: &nodes)"
+      "let #{name}: [#{type}]#{opt(optional)} = try #{codec()}.#{spec}(of: #{type}.self, identifier: .#{spec}, nodes: &nodes)"
   def emitSequenceDecoderBodyElementIntEnum(name, type), do:
       "let #{name} = try #{type}(rawValue: Int(derEncoded: &nodes))"
 
@@ -200,19 +200,19 @@ import Foundation
 
   def emitChoiceDecoderBodyElementForArray(w, no, name, type, spec) when no == [], do:
       pad(w) <> "case ASN1Identifier.#{spec}:\n" <>
-      pad(w+4) <> "self = .#{name}(try DER.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: rootNode))"
+      pad(w+4) <> "self = .#{name}(try #{codec()}.#{spec}(of: #{type}.self, identifier: .#{spec}, rootNode: rootNode))"
   def emitChoiceDecoderBodyElementForArray(w, no,  name, type, spec) when spec == "", do:
       pad(w) <> "case ASN1Identifier(tagWithNumber: #{tagNo(no)}, tagClass: #{tagClass(no)}):\n" <>
-      pad(w+4) <> "self = .#{name}(try DER.#{spec}(of: #{type}.self, identifier: .#{spec}, nodes: &nodes))"
+      pad(w+4) <> "self = .#{name}(try #{codec()}.#{spec}(of: #{type}.self, identifier: .#{spec}, nodes: &nodes))"
   def emitChoiceDecoderBodyElementForArray(w, no,  name, type, spec), do:
       pad(w) <> "case ASN1Identifier(tagWithNumber: #{tagNo(no)}, tagClass: #{tagClass(no)}):\n" <>
-      pad(w+4) <> "self = .#{name}(try DER.#{spec}(of: #{type}.self, identifier: rootNode.identifier, rootNode: rootNode))"
+      pad(w+4) <> "self = .#{name}(try #{codec()}.#{spec}(of: #{type}.self, identifier: rootNode.identifier, rootNode: rootNode))"
 
   def emitSequenceDefinition(name,fields,ctor,decoder,encoder), do:
 """
 #{emitImprint()}
 import SwiftASN1\nimport Foundation\n
-@usableFromInline struct #{name}: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct #{name}: DERImplicitlyTaggable#{ber_parseable()}, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }\n#{fields}#{ctor}#{decoder}#{encoder}}
 """
 
@@ -220,7 +220,7 @@ import SwiftASN1\nimport Foundation\n
 """
 #{emitImprint()}
 import SwiftASN1\nimport Foundation\n
-@usableFromInline struct #{name}: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct #{name}: DERImplicitlyTaggable#{ber_parseable()}, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .set }\n#{fields}#{ctor}#{decoder}#{encoder}}
 """
 
@@ -230,7 +230,7 @@ import SwiftASN1\nimport Foundation\n
 import SwiftASN1
 import Foundation
 
-@usableFromInline indirect enum #{name}: DERImplicitlyTaggable, DERParseable, DERSerializable, Hashable, Sendable {
+@usableFromInline indirect enum #{name}: DERImplicitlyTaggable#{ber_parseable()}, DERParseable, DERSerializable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { #{defId} }
     #{cases}#{decoder}#{encoder}
 }
@@ -240,7 +240,7 @@ import Foundation
 """
 #{emitImprint()}
 import SwiftASN1\nimport Foundation\n
-public struct #{name}: DERImplicitlyTaggable, Hashable, Sendable, RawRepresentable {
+public struct #{name}: DERImplicitlyTaggable#{ber_parseable()}, Hashable, Sendable, RawRepresentable {
     public static var defaultIdentifier: ASN1Identifier { .enumerated }
     public var rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
@@ -257,7 +257,7 @@ public struct #{name}: DERImplicitlyTaggable, Hashable, Sendable, RawRepresentab
 """
 #{emitImprint()}
 import SwiftASN1\nimport Foundation\n
-public struct #{name} : DERImplicitlyTaggable, DERParseable, DERSerializable, Hashable, Sendable, Comparable {
+public struct #{name} : DERImplicitlyTaggable#{ber_parseable()}, DERParseable, DERSerializable, Hashable, Sendable, Comparable {
     public static var defaultIdentifier: ASN1Identifier { .integer }
     @usableFromInline  var rawValue: Int
     @inlinable public static func < (lhs: #{name}, rhs: #{name}) -> Bool { lhs.rawValue < rhs.rawValue }
@@ -322,7 +322,7 @@ public struct #{name} : DERImplicitlyTaggable, DERParseable, DERSerializable, Ha
 """
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.set(root, identifier: identifier) { nodes in\n#{fields}
+        self = try #{codec()}.set(root, identifier: identifier) { nodes in\n#{fields}
             return #{normalizeName(name)}(#{args})
         }
     }
@@ -332,7 +332,7 @@ public struct #{name} : DERImplicitlyTaggable, DERParseable, DERSerializable, Ha
 """
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in\n#{fields}
+        self = try #{codec()}.sequence(root, identifier: identifier) { nodes in\n#{fields}
             return #{normalizeName(name)}(#{args})
         }
     }
@@ -588,18 +588,33 @@ public struct #{name} : DERImplicitlyTaggable, DERParseable, DERSerializable, Ha
       end, [], :lists.sort(:application.get_all_env(:asn1scg)))
   end
 
-  def compile() do
-      {:ok, f} = :file.list_dir inputDir()
-      :io.format "F: ~p~n", [f]
-      files = :lists.filter(fn x -> String.ends_with?(to_string(x), ".asn1") end, f)
-      setEnv(:save, false) ; :lists.map(fn file -> compile(false, inputDir() <> to_string(file))  end, files)
-      setEnv(:save, false) ; :lists.map(fn file -> compile(false, inputDir() <> to_string(file))  end, files)
-      setEnv(:save, true)  ; :lists.map(fn file -> compile(true,  inputDir() <> to_string(file))  end, files)
-      print "inputDir: ~ts~n", [inputDir()]
+  def compileSingle(file) do
+      setEnv(:save, false) ; compile(false, file)
+      setEnv(:save, false) ; compile(false, file)
+      setEnv(:save, true)  ; compile(true,  file)
+      print "input: ~ts~n", [file]
       print "outputDir: ~ts~n", [outputDir()]
       print "coverage: ~tp~n", [coverage()]
       dump()
       :ok
+  end
+
+  def compile() do
+      case :file.list_dir(inputDir()) do
+           {:ok, f} ->
+               :io.format "F: ~p~n", [f]
+               files = :lists.filter(fn x -> String.ends_with?(to_string(x), ".asn1") end, f)
+               setEnv(:save, false) ; :lists.map(fn file -> compile(false, inputDir() <> to_string(file))  end, files)
+               setEnv(:save, false) ; :lists.map(fn file -> compile(false, inputDir() <> to_string(file))  end, files)
+               setEnv(:save, true)  ; :lists.map(fn file -> compile(true,  inputDir() <> to_string(file))  end, files)
+               print "inputDir: ~ts~n", [inputDir()]
+               print "outputDir: ~ts~n", [outputDir()]
+               print "coverage: ~tp~n", [coverage()]
+               dump()
+               :ok
+           {:error, :enotdir} ->
+               compileSingle(String.trim_trailing(inputDir(), "/"))
+      end
   end
 
   def coverage() do
@@ -810,6 +825,9 @@ public let #{swiftName}: ASN1ObjectIdentifier = [#{oid}]
       :application.set_env(:asn1scg, bx, y)
   end
   def getEnv(x,y), do: :application.get_env(:asn1scg, bin(x), y)
+  def codec(), do: if(getEnv(:ber, false), do: "BER", else: "DER")
+  def codec_init(), do: if(getEnv(:ber, false), do: "ber", else: "der")
+  def ber_parseable(), do: if(getEnv(:ber, false), do: ", BERParseable", else: "")
   def bin(x) when is_atom(x), do: :erlang.atom_to_binary x
   def bin(x) when is_list(x), do: :erlang.list_to_binary x
   def bin(x), do: x
@@ -831,14 +849,32 @@ public let #{swiftName}: ASN1ObjectIdentifier = [#{oid}]
 
 end
 
-case System.argv() do
-  ["compile"]          -> ASN1.compile
-  ["compile","-v"]     -> ASN1.setEnv(:verbose, true) ; ASN1.compile
-  ["compile",i]        -> ASN1.setEnv(:input, i <> "/") ; ASN1.compile
-  ["compile","-v",i]   -> ASN1.setEnv(:input, i <> "/") ; ASN1.setEnv(:verbose, true) ; ASN1.compile
-  ["compile",i,o]      -> ASN1.setEnv(:input, i <> "/") ; ASN1.setEnv(:output, o <> "/") ; ASN1.compile
-  ["compile","-v",i,o] -> ASN1.setEnv(:input, i <> "/") ; ASN1.setEnv(:output, o <> "/") ; ASN1.setEnv(:verbose, true) ; ASN1.compile
+argv0 = System.argv()
+ber = Enum.member?(argv0, "--ber") or Enum.member?(argv0, "-b")
+argv1 = Enum.reject(argv0, fn a -> a == "--ber" or a == "-b" end)
+verbose = Enum.member?(argv1, "-v")
+argv = Enum.reject(argv1, fn a -> a == "-v" end)
+
+if ber, do: ASN1.setEnv(:ber, true)
+if verbose, do: ASN1.setEnv(:verbose, true)
+
+case argv do
+  ["compile"]     -> ASN1.compile
+  ["compile", i]  ->
+      if String.ends_with?(i, ".asn1") do
+          ASN1.setEnv(:input, i)
+      else
+          ASN1.setEnv(:input, i <> "/")
+      end
+      ASN1.compile
+  ["compile", i,o]->
+      if String.ends_with?(i, ".asn1") do
+          ASN1.setEnv(:input, i)
+      else
+          ASN1.setEnv(:input, i <> "/")
+      end
+      ASN1.setEnv(:output, o <> "/") ; ASN1.compile
   _ -> :io.format("Copyright © 1994—2024 Namdak Tönpa.~n")
        :io.format("ISO 8824 ITU/IETF X.680-690 ERP/1 ASN.1 DER Compiler, version 30.10.7.~n")
-       :io.format("Usage: ./asn1.ex help | compile [-v] [input [output]]~n")
+       :io.format("Usage: ./asn1.ex help | compile [-v] [--ber|-b] [input [output]]~n")
 end

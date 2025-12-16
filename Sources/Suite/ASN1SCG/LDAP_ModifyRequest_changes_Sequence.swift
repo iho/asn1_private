@@ -2,7 +2,7 @@
 import SwiftASN1
 import Foundation
 
-@usableFromInline struct LDAP_ModifyRequest_changes_Sequence: DERImplicitlyTaggable, Hashable, Sendable {
+@usableFromInline struct LDAP_ModifyRequest_changes_Sequence: DERImplicitlyTaggable, BERParseable, Hashable, Sendable {
     @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
     @usableFromInline var operation: LDAP_ModifyRequest_changes_Sequence_operation_Enum
     @usableFromInline var modification: LDAP_PartialAttribute
@@ -12,7 +12,7 @@ import Foundation
     }
     @inlinable init(derEncoded root: ASN1Node,
         withIdentifier identifier: ASN1Identifier) throws {
-        self = try DER.sequence(root, identifier: identifier) { nodes in
+        self = try BER.sequence(root, identifier: identifier) { nodes in
             let operation: LDAP_ModifyRequest_changes_Sequence_operation_Enum = try LDAP_ModifyRequest_changes_Sequence_operation_Enum(derEncoded: &nodes)
             let modification: LDAP_PartialAttribute = try LDAP_PartialAttribute(derEncoded: &nodes)
             return LDAP_ModifyRequest_changes_Sequence(operation: operation, modification: modification)
