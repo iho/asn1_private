@@ -1,6 +1,5 @@
 
 # Load the compiler module
-# Load the compiler module
 Code.require_file("lib/emitter.ex", ".")
 Code.require_file("lib/asn1.ex", ".")
 Code.require_file("lib/emitters/swift.ex", ".")
@@ -354,33 +353,9 @@ end
 
 
 # Set up environment variables for the compilation
-# Target ONLY the AuthenticationFramework file
-# Application.put_env(:asn1scg, :SelectedAttributeTypes_DirectoryString, "PKIX1Explicit88_DirectoryString")
+# You may need to adjust these for the basic suite if they have specific mappings
 Application.put_env(:asn1scg, :InformationFramework_MAPPING_BASED_MATCHING, "ASN1Any")
 Application.put_env(:asn1scg, :Attribute, "InformationFramework_Attribute")
-Application.put_env(:asn1scg, :ANSI_X9_42_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :ANSI_X9_62_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :ANSI_X9_62_FieldID, "ASN1Any")
-Application.put_env(:asn1scg, :PKCS_7_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :PKCS_7_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :PKCS_5_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :ANSI_X9_42_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :ANSI_X9_62_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :AlgorithmInformation_2009_AlgorithmIdentifier, "AuthenticationFramework_AlgorithmIdentifier")
-Application.put_env(:asn1scg, :PKIX1Explicit88_AttributeValue, "ASN1Any")
-Application.put_env(:asn1scg, :PKCS_9_AttributeValue, "ASN1Any") # Defensive
-Application.put_env(:asn1scg, :PKCS_7_AttributeValue, "ASN1Any") # Defensive
-Application.put_env(:asn1scg, :InformationFramework_Extension, "InformationFramework_Extension")
-Application.put_env(:asn1scg, :InformationFramework_Extensions, "InformationFramework_Extensions")
-Application.put_env(:asn1scg, :AuthenticationFramework_Extension, "AuthenticationFramework_Extension")
-Application.put_env(:asn1scg, :AuthenticationFramework_Extensions, "AuthenticationFramework_Extensions")
-
-# Fix type aliases to ensure consistent GeneralNames resolution
-Application.put_env(:asn1scg, :CertificateExtensions_GeneralNames, "PKIX1Implicit_2009_GeneralNames")
-Application.put_env(:asn1scg, :GeneralNames, "PKIX1Implicit_2009_GeneralNames")
-# Fix alternative_feature_sets type
-Application.put_env(:asn1scg, :Document_Profile_Descriptor_Document_Profile_Descriptor_Document_Characteristics_alternative_feature_sets_Element, "ASN1ObjectIdentifier")
-
 
 ptypes = %{
   "SingleAttribute" => {:sequence, [
@@ -396,99 +371,22 @@ ptypes = %{
     {:critical, :boolean, [optional: true]},
     {:extnValue, :octet_string, []}
   ]},
-  "SecurityCategory" => {:sequence, [
-    {:type, :oid, [tag: {:context, 0, :implicit}]},
-    {:value, :any, [tag: {:context, 1, :explicit}]}
-  ]},
-  "SecurityCategory-rfc3281" => {:sequence, [
-    {:type, :oid, [tag: {:context, 0, :implicit}]},
-    {:value, :any, [tag: {:context, 1, :explicit}]}
-  ]},
   "Attribute" => {:sequence, [
     {:type, :oid, []},
     {:values, {:set_of, :any}, []}
   ]},
   "Attributes" => {:set_of, {:external, "Attribute"}},
   "Extensions" => {:sequence_of, {:external, "Extension"}},
-  "SubjectPublicKeyInfo" => {:sequence, [
-    {:algorithm, {:external, "AuthenticationFramework_AlgorithmIdentifier"}, []},
-    {:subjectPublicKey, :bit_string, []}
-  ]},
-  "DirectoryString" => {:choice, [
-    {:teletexString, :TeletexString},
-    {:printableString, :PrintableString},
-    {:bmpString, :BMPString},
-    {:universalString, :UniversalString},
-    {:uTF8String, :UTF8String}
-  ]},
-  "FieldID" => {:sequence, [
-    {:fieldType, :oid, []},
-    {:parameters, :any, []}
-  ]},
-  "PKCS9String" => {:choice, [
-      {:ia5String, :IA5String},
-      {:directoryString, {:external, "DirectoryString"}}
-  ]},
-  "SMIMECapability" => {:sequence, [
-      {:algorithm, :oid, []},
-      {:parameters, :any, [optional: true]} # Treating as optional to be safe
-  ]},
-  "SMIMECapabilities" => {:sequence_of, {:external, "SMIMECapability"}},
-  "ENCRYPTED-HASH" => :bit_string,
-  "ENCRYPTED" => :bit_string,
-  "HASH" => {:sequence, [
-      {:algorithmIdentifier, {:external, "AuthenticationFramework_AlgorithmIdentifier"}, []},
-      {:hashValue, :bit_string, []}
-  ]},
-  "SIGNATURE" => {:sequence, [
-      {:algorithmIdentifier, {:external, "AuthenticationFramework_AlgorithmIdentifier"}, []},
-      {:encrypted, :bit_string, []}
-  ]},
-  "SIGNED" => {:sequence, [
-      {:toBeSigned, :any, []},
-      {:algorithmIdentifier, {:external, "AuthenticationFramework_AlgorithmIdentifier"}, []},
-      {:encrypted, :bit_string, []}
-  ]},
   "Context" => {:sequence, [
       {:contextType, :oid, []},
       {:contextValues, {:set_of, :any}, []},
       {:fallback, :boolean, [optional: true]}
-  ]},
-  "EncryptedContentInfo" => {:sequence, [
-      {:contentType, :oid, []},
-      {:contentEncryptionAlgorithm, {:external, "AlgorithmInformation_2009_AlgorithmIdentifier"}, []},
-      {:encryptedContent, :octet_string, [optional: true, tag: {:context, 0, :implicit}]}
   ]}
 }
 Application.put_env(:asn1scg, :ptypes, ptypes)
 
 # Manual boxing entries for known recursive types
-# These are kept as overrides/supplements to automatic detection
-manual_boxing = [
-    # "Layout_Descriptors_Layout_Class_Descriptor_Body.generator_for_subordinates",
-    # "Layout_Descriptors_Layout_Class_Descriptor_Body.content_generator",
-    # "Layout_Descriptors_Layout_Class_Descriptor_Body.bindings",
-    # "Layout_Descriptors_Layout_Object_Descriptor_Body.bindings",
-    # "Layout_Descriptors_Layout_Class_Descriptor.descriptor_body",
-    # "Layout_Descriptors_Layout_Object_Descriptor.descriptor_body",
-
-    # # Reducing Layout Body Size
-    # "Layout_Descriptors_Layout_Class_Descriptor_Body.presentation_attributes",
-    # "Layout_Descriptors_Layout_Class_Descriptor_Body.default_value_lists",
-    # "Layout_Descriptors_Layout_Object_Descriptor_Body.presentation_attributes",
-    # "Layout_Descriptors_Layout_Object_Descriptor_Body.default_value_lists",
-
-    # # Identifiers-and-Expressions Recursion
-    # "Identifiers_and_Expressions_Construction_Factor.construction_type",
-    # "Identifiers_and_Expressions_Object_Id_Expression.preceding_object_function",
-    # "Identifiers_and_Expressions_Object_Id_Expression.superior_object_function",
-    # "Identifiers_and_Expressions_Numeric_Expression.increment_application",
-    # "Identifiers_and_Expressions_Numeric_Expression.decrement_application",
-    # "Identifiers_and_Expressions_Numeric_Expression_ordinal_application.expression",
-    # "Identifiers_and_Expressions_Binding_Selection_Function.preceding_function",
-    # "Identifiers_and_Expressions_Binding_Selection_Function.superior_function",
-    # "Identifiers_and_Expressions_Current_Instance_Function.second_parameter_expression"
-]
+manual_boxing = []
 
 # Parse command line arguments
 {parsed, argv, _} = OptionParser.parse(System.argv(),
@@ -497,7 +395,7 @@ manual_boxing = [
 )
 
 language = Keyword.get(parsed, :language, "Swift")
-output_dir = Keyword.get(parsed, :output, "Sources/Suite/XSeries/")
+output_dir = Keyword.get(parsed, :output, "Sources/Suite/Basic/")
 # Ensure output_dir ends with /
 output_dir = if String.ends_with?(output_dir, "/"), do: output_dir, else: output_dir <> "/"
 
@@ -509,7 +407,7 @@ Application.put_env(:asn1scg, :language, language)
 File.mkdir_p!(output_dir)
 Application.put_env(:asn1scg, :output, output_dir)
 
-base_dir = "priv/x-series"
+base_dir = "priv/basic"
 
 # Get list of files from remaining arguments
 raw_files =

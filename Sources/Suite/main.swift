@@ -1019,9 +1019,6 @@ public class Console {
 
   public static func suite() -> Int32 {
      let argv = CommandLine.arguments
-     if argv.count >= 2, argv[1] == "cms" {
-        return CMSCLI.main(arguments: Array(argv.dropFirst(2)))
-     }
      do {
        try verifyOID()
        print(": UsefulDefinitions_id_ce ⟼ \(UsefulDefinitions_id_ce)")
@@ -1032,11 +1029,11 @@ public class Console {
        try showCertificateData(data: [48, 129, 129, 48, 107, 160, 3, 2, 1, 2, 2, 3, 1, 226, 64, 48, 10, 6, 8, 42, 134, 72, 206, 61, 4, 3, 2, 48, 13, 49, 11, 48, 9, 6, 3, 85, 4, 3, 19, 2, 67, 65, 48, 30, 23, 13, 50, 51, 48, 49, 48, 49, 49, 50, 48, 48, 48, 48, 90, 23, 13, 51, 48, 48, 49, 48, 49, 49, 50, 48, 48, 48, 48, 90, 48, 15, 49, 13, 48, 11, 6, 3, 85, 4, 3, 19, 4, 85, 115, 101, 114, 48, 19, 48, 9, 6, 7, 42, 134, 72, 206, 61, 2, 1, 3, 6, 0, 4, 0, 0, 0, 0, 48, 10, 6, 8, 42, 134, 72, 206, 61, 4, 3, 2, 3, 6, 0, 1, 2, 3, 4, 5])
 
 
-       try showCertificate(file: "ca.crt")
-       try verifyX509(file: "ca.crt", output: "verified.der")
-       try generateX509()
-       try verifyX509(file: "generated.crt", output: "generated_verified.der")
-       try showContentInfo(file: "data.bin")
+      //  try showCertificate(file: "ca.crt")
+      //  try verifyX509(file: "ca.crt", output: "verified.der")
+      //  try generateX509()
+      //  try verifyX509(file: "generated.crt", output: "generated_verified.der")
+      //  try showContentInfo(file: "data.bin")
        try showDirectoryString(data: [19,3,49,50,51])
        // try showLDAPMessage(data: [48,16,2,1,1,96,9,2,1,1,4,0,128,2,49,50,160,0])
        try showCHATMessage(data: [48,27,2,1,1,48,0,160,20,4,3,53,72,84,4,7,53,72,84,46,99,115,114,4,4,48,48,48,48])

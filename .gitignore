@@ -1,4 +1,5 @@
 .build
+_build
 Package.resolved
 .windsurf
 .vscode/
@@ -9,3 +10,12 @@ generated.crt
 generated_cycle.txt
 generated_orig.txt
 generated_verified.der
+*.der
+*.bin 
+*.key.enc 
+*.log
+*.csr 
+*.pem 
+*.dump 
+*.p12 
+*.txt

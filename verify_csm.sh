@@ -12,28 +12,34 @@ echo "IV=$IV"
 echo "Encrypting with OpenSSL (AES-128-CBC)..."
 openssl enc -aes-128-cbc -nosalt \
   -K "$KEY" -iv "$IV" \
-  -in message.txt -out encrypted.bin
+  -in message.txt -out encrypted_openssl.bin
+
+echo "Decrypting with Swift (AES-128-CBC)..."
+swift run -Xswiftc -suppress-warnings chat-x509 cms aes-decrypt \
+  -in encrypted_openssl.bin \
+  -key "$KEY" \
+  -iv "$IV" \
+  -out decrypted_swift_from_openssl.txt
+
+echo "Encrypting with Swift (AES-128-CBC)..."
+swift run -Xswiftc -suppress-warnings chat-x509 cms aes-encrypt \
+  -in message.txt \
+  -key "$KEY" \
+  -iv "$IV" \
+  -out encrypted_swift.bin
 
 echo "Decrypting with OpenSSL (AES-128-CBC)..."
 openssl enc -d -aes-128-cbc -nosalt \
   -K "$KEY" -iv "$IV" \
-  -in encrypted.bin -out decrypted.txt
+  -in encrypted_swift.bin -out decrypted_openssl_from_swift.txt
 
-echo "Decrypting with Swift (AES-128-CBC)..."
-swift run -Xswiftc -suppress-warnings chat-x509 cms aes-decrypt \
-  -in encrypted.bin \
-  -key "$KEY" \
-  -iv "$IV" \
-  -out decrypted_swift.txt
+echo "Verifying decrypted outputs..."
+diff decrypted_swift_from_openssl.txt message.txt
+diff decrypted_openssl_from_swift.txt message.txt
 
-echo "Verifying Decrypted Content..."
-if diff decrypted.txt decrypted_swift.txt; then
-    echo "Files match - verification passed!"
-else
-    echo "Files differ - verification failed!"
-    exit 1
-fi
+echo "Verifying ciphertext compatibility..."
+diff encrypted_openssl.bin encrypted_swift.bin
 
-rm decrypted.txt decrypted_swift.txt encrypted.bin message.txt
+rm encrypted_openssl.bin encrypted_swift.bin decrypted_swift_from_openssl.txt decrypted_openssl_from_swift.txt message.txt
 
 echo "Passed!"
