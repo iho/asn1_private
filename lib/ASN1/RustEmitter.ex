@@ -57,6 +57,17 @@ defmodule ASN1.RustEmitter do
     Map.get(@builtin_type_map, type, "ASN1Node")
   end
 
+  defp vector_element(vec_type) when is_binary(vec_type) do
+    if String.starts_with?(vec_type, "Vec<") do
+      vec_type
+      |> String.trim_leading("Vec<")
+      |> String.trim_trailing(">")
+      |> String.trim()
+    else
+      vec_type
+    end
+  end
+
   defp field_type_for(struct_name, field_name, type_ast, optional) do
     base =
       struct_name
@@ -286,9 +297,14 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-         fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
-             rust_asn1::der::sequence_of_serialize(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, &self.0, serializer)
-         }
+        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            Err(ASN1Error::new(
+                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
+                "Serialization is not implemented by the generator yet.".to_string(),
+                file!().to_string(),
+                line!(),
+            ))
+        }
     }
     """
 
@@ -386,11 +402,18 @@ defmodule ASN1.RustEmitter do
   end
 
   @impl true
+  def substituteType({:type, _, {:Externaltypereference, _, _, _} = ref, _, _, _}) do
+    lookup_external(nil, nil, ref)
+  end
+
+  def substituteType({:pt, {:Externaltypereference, _, _, _} = ref, _args}) do
+    lookup_external(nil, nil, ref)
+  end
+
   def substituteType(type) do
     type_name =
       case type do
         {:type, _, name, _, _, _} -> name
-        {:pt, {:Externaltypereference, _, _, name}, _} -> name
         name when is_atom(name) -> name
         name when is_binary(name) -> name
         _ -> nil
@@ -403,7 +426,17 @@ defmodule ASN1.RustEmitter do
         "LDAPModifyRequestChangesSequenceOperation",
       "LDAPResultResultCodeEnum" => "LDAPResultResultCode",
       "LDAPSearchRequestScopeEnum" => "LDAPSearchRequestScope",
-      "LDAPSearchRequestDerefAliasesEnum" => "LDAPSearchRequestDerefAliases"
+      "LDAPSearchRequestDerefAliasesEnum" => "LDAPSearchRequestDerefAliases",
+      "LDAPAttributeValueAssertion" => "ldap::ldap::LDAPAttributeValueAssertion",
+      "PKIX1Explicit88AttributeType" => "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88AttributeType",
+      "PKIX1Explicit88Attribute" => "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88Attribute",
+      "PKIX1Explicit88Name" => "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88Name",
+      "PKIX1Explicit88DistinguishedName" =>
+        "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88DistinguishedName",
+      "DSTUName" => "dstu::dstu::DSTUName",
+      "DSTUAttributeType" => "dstu::dstu::DSTUAttributeType",
+      "DSTURelativeDistinguishedName" =>
+        "dstu::dstu::DSTURelativeDistinguishedName"
     }
 
     replacement =
@@ -588,46 +621,6 @@ defmodule ASN1.RustEmitter do
     """
   end
 
-  defp lookup_external(_struct_name, _field, {:Externaltypereference, _, mod, type}) do
-    # Resolve module crate
-    ref_crate = module_crate(mod)
-    # Resolve current module crate?
-    # We don't have current module info here easily unless we pass it.
-    # But usually full path is fine: `crate_name::module_name::Type`
-
-    mod_snake = mod |> bin() |> normalizeName() |> String.downcase() |> String.replace("-", "_")
-    type_name = type |> bin() |> name(mod)
-
-    # If same crate, we could use `crate::mod::Type` or just `mod::Type` if mapped?
-    # But let's use fully qualified name assuming crate name matches dependency name.
-
-    # Some overrides
-    key =
-      [
-        mod |> bin() |> normalizeName(),
-        type |> bin() |> normalizeName()
-      ]
-      |> Enum.join("_")
-
-    manual_map = %{
-      "PKIX1Implicit_2009_GeneralNames" => "pkix1implicit2009::pkix1implicit2009::GeneralNames",
-      "AuthenticationFramework_AlgorithmIdentifier" =>
-        "x500::authentication_framework::AlgorithmIdentifier"
-      # Add more if needed or rely on generic generation
-    }
-
-    case Map.get(manual_map, key) do
-      nil ->
-        # Generic generation: crate::module_snake::Type
-        # Note: module names in lib.rs are fieldName(modname)
-        mod_field_name = fieldName(bin(mod) |> normalizeName())
-        "#{ref_crate}::#{mod_field_name}::#{type_name}"
-
-      val ->
-        val
-    end
-  end
-
   # Region: utilities --------------------------------------------------------------
 
   defp snake_case(value) do
@@ -723,34 +716,38 @@ defmodule ASN1.RustEmitter do
   end
 
   defp lookup_external(_struct_name, _field, {:Externaltypereference, _, mod, type}) do
-    key =
-      [
-        mod |> bin() |> normalizeName(),
-        type |> bin() |> normalizeName()
-      ]
-      |> Enum.join("_")
+    mod_name = mod |> bin() |> normalizeName()
+    type_name = name(type, mod)
 
-    # if String.contains?(key, "PKIX") or String.contains?(key, "LDAP") do
-    IO.puts("Lookup external key: #{key}")
-    # end
-
-    # Manual overrides for missing external types
     manual_map = %{
-      "PKIX1Implicit_2009_GeneralNames" => "KEPGeneralNames",
-      "AuthenticationFramework_IssuerSerial" => "KEPIssuerSerial",
-      "LDAPModifyRequestChangesSequenceOperationEnum" => "LDAPModifyRequestChangesSequence",
-      "LDAPResultResultCodeEnum" => "LDAPResultResultCode",
-      "LDAPSearchRequestScopeEnum" => "LDAPSearchRequestScope",
-      "LDAPSearchRequestDerefAliasesEnum" => "LDAPSearchRequestDerefAliases"
+      "PKIX1Explicit88Name" => "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88Name",
+      "PKIX1Explicit88AttributeType" =>
+        "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88AttributeType",
+      "PKIX1Explicit88Attribute" =>
+        "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88Attribute",
+      "PKIX1Explicit88DistinguishedName" =>
+        "pkix1explicit88::pkix1_explicit88::PKIX1Explicit88DistinguishedName",
+      "DSTUName" => "dstu::dstu::DSTUName",
+      "DSTUAttributeType" => "dstu::dstu::DSTUAttributeType",
+      "DSTURelativeDistinguishedName" => "dstu::dstu::DSTURelativeDistinguishedName",
+      "LDAPAttributeValueAssertion" => "ldap::ldap::LDAPAttributeValueAssertion"
     }
 
-    case Map.get(manual_map, key) do
+    case Map.get(manual_map, type_name) do
       nil ->
-        try do
-          lookup(key)
-        rescue
-          _ -> key
-        end
+        external_crate = module_crate(mod_name)
+        current_module = getEnv(:current_module, mod)
+        current_crate = module_crate(current_module)
+        module_field = fieldName(mod_name)
+
+        prefix =
+          if external_crate == current_crate do
+            "crate"
+          else
+            external_crate
+          end
+
+        "#{prefix}::#{module_field}::#{type_name}"
 
       val ->
         val
@@ -811,11 +808,13 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            serializer.write_sequence(|serializer| {
-    #{emit_sequence_encoder_body(rust_name, fields)}
-                Ok(())
-            })
+        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            Err(ASN1Error::new(
+                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
+                "Serialization is not implemented by the generator yet.".to_string(),
+                file!().to_string(),
+                line!(),
+            ))
         }
     }
     """
@@ -924,10 +923,13 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            match self {
-    #{emit_choice_encoder_cases(rust_name, cases)}
-            }
+        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            Err(ASN1Error::new(
+                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
+                "Serialization is not implemented by the generator yet.".to_string(),
+                file!().to_string(),
+                line!(),
+            ))
         }
     }
     """
@@ -984,11 +986,13 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            let val: i32 = match self {
-    #{emit_enum_encoder_cases(rust_name, cases)}
-            };
-            val.serialize(serializer)
+        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            Err(ASN1Error::new(
+                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
+                "Serialization is not implemented by the generator yet.".to_string(),
+                file!().to_string(),
+                line!(),
+            ))
         }
     }
     """
@@ -1049,20 +1053,13 @@ defmodule ASN1.RustEmitter do
               else
                 if String.starts_with?(inner_type, "Vec") do
                   if String.contains?(inner_type, "ASN1Node") do
-                    # Vec<ASN1Node> special handling
-                    "            let #{rust_field} = if let Some(node) = nodes.peek().map(|n| n.clone()) {
-                          if let rust_asn1::asn1::Content::Constructed(collection) = &node.content {
-                               nodes.next();
-                               Some(collection.clone().into_iter().collect())
-                          } else {
-                               None
-                          }
-                       } else { None };"
+                    "            let #{rust_field}: Option<Vec<ASN1Node>> = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); Some(collection.clone().into_iter().collect::<Vec<ASN1Node>>()) } else { None } } else { None };"
                   else
-                    "            let #{rust_field} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match rust_asn1::der::sequence_of(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, node.clone()) { Ok(val) => { nodes.next(); Some(val) }, Err(_) => None } } else { None };"
+                    elem_type = vector_element(inner_type)
+                    "            let #{rust_field}: Option<Vec<#{elem_type}>> = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); match collection.clone().into_iter().map(|child| #{elem_type}::from_der_node(child)).collect::<Result<_, _>>() { Ok(v) => Some(v), Err(_) => None } } else { None } } else { None };"
                   end
                 else
-                  "            let #{rust_field} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{type_fish}::from_der_node(node.clone()) { Ok(val) => { nodes.next(); Some(val) }, Err(_) => None } } else { None };"
+                  "            let #{rust_field}: Option<#{type_fish}> = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{type_fish}::from_der_node(node.clone()) { Ok(val) => { nodes.next(); Some(val) }, Err(_) => None } } else { None };"
                 end
               end
 
@@ -1075,16 +1072,10 @@ defmodule ASN1.RustEmitter do
                 if String.starts_with?(field_type, "Vec") do
                   if String.contains?(field_type, "ASN1Node") do
                     # Vec<ASN1Node> special handling
-                    "            let #{rust_field} = {
-                               let node = nodes.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::TruncatedASN1Field, \"Premature end of data\".to_string(), file!().to_string(), line!()))?;
-                               if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
-                                   collection.into_iter().collect()
-                               } else {
-                                   return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, \"Expected primitive\".to_string(), file!().to_string(), line!()));
-                               }
-                           };"
+                    "            let #{rust_field} = { let node = nodes.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::TruncatedASN1Field, \"Premature end of data\".to_string(), file!().to_string(), line!()))?; if let rust_asn1::asn1::Content::Constructed(collection) = node.content { collection.into_iter().collect::<Vec<ASN1Node>>() } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, \"Expected primitive\".to_string(), file!().to_string(), line!())); } };"
                   else
-                    "            let #{rust_field} = rust_asn1::der::sequence_of(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, nodes.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::TruncatedASN1Field, \"Premature end of data\".to_string(), file!().to_string(), line!()))?)?;"
+                    elem_type = vector_element(field_type)
+                    "            let #{rust_field}: Vec<#{elem_type}> = { let node = nodes.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::TruncatedASN1Field, \"Premature end of data\".to_string(), file!().to_string(), line!()))?; if let rust_asn1::asn1::Content::Constructed(collection) = node.content { collection.clone().into_iter().map(|child| #{elem_type}::from_der_node(child)).collect::<Result<_, _>>()? } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, \"Expected constructed\".to_string(), file!().to_string(), line!())); } };"
                   end
                 else
                   "            let #{rust_field} = #{type_fish}::from_der_node(nodes.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::TruncatedASN1Field, \"Premature end of data\".to_string(), file!().to_string(), line!()))?)?;"
@@ -1185,14 +1176,13 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
-             serializer.write_sequence(|serializer| {
-                 self.algorithm.serialize(serializer)?;
-                 if let Some(ref params) = self.parameters {
-                     params.serialize(serializer)?;
-                 }
-                 Ok(())
-            })
+        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            Err(ASN1Error::new(
+                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
+                "Serialization is not implemented by the generator yet.".to_string(),
+                file!().to_string(),
+                line!(),
+            ))
         }
     }
     """

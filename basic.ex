@@ -7,6 +7,7 @@ Code.require_file("lib/ASN1/GoEmitter.ex", ".")
 Code.require_file("lib/ASN1/SwiftEmitter.ex", ".")
 Code.require_file("lib/ASN1/RustEmitter.ex", ".")
 Code.require_file("lib/ASN1/C99Emitter.ex", ".")
+Code.require_file("lib/ASN1/WorkspaceGenerator.ex", ".")
 
 # ============================================================================
 # DependencyAnalyzer - Handles import parsing, topological sort, and cycle detection
@@ -572,7 +573,7 @@ Application.put_env(:asn1scg, :lang, lang)
 
 default_output =
   case lang do
-    "rust" -> "asn1_suite/src/generated"
+    "rust" -> "asn1_suite"
     _ -> "Sources/Suite/Basic"
   end
 
@@ -608,6 +609,25 @@ IO.puts("Found #{map_size(deps)} modules with dependencies")
 IO.puts("Topologically sorting by dependencies...")
 files = DependencyAnalyzer.topological_sort(deps, raw_files, base_dir)
 IO.puts("Sorted order: #{length(files)} files")
+
+if lang == "rust" do
+  modules =
+    files
+    |> Enum.map(fn filename ->
+      path = Path.join(base_dir, filename)
+
+      if File.exists?(path) do
+        {modname, _} = DependencyAnalyzer.parse_imports(path)
+        modname
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+
+  workspace_root = Path.expand("asn1_suite")
+  File.mkdir_p!(Path.join(workspace_root, "crates"))
+  WorkspaceGenerator.generate_workspace(modules, workspace_root, deps)
+end
 
 # Detect type cycles for Box wrapping
 IO.puts("Detecting type cycles for Box wrapper...")
