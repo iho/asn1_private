@@ -517,7 +517,68 @@ import Foundation
 """)
   end
 
-  def algorithmIdentifierClass(className, modname, saveFlag) do
+  # Special case for X.509 Extension type which has a specific structure:
+  # Extension ::= SEQUENCE { extnId OID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING }
+  def algorithmIdentifierClass(className, modname, saveFlag) when is_binary(className) do
+      if String.ends_with?(className, "Extension") and not String.ends_with?(className, "Extensions") do
+          extensionClass(className, modname, saveFlag)
+      else
+          algorithmIdentifierClassGeneric(className, modname, saveFlag)
+      end
+  end
+  def algorithmIdentifierClass(className, modname, saveFlag), do:
+      algorithmIdentifierClassGeneric(className, modname, saveFlag)
+
+  defp extensionClass(className, modname, saveFlag) do
+      save(saveFlag, modname, className, """
+#{emitImprint()}
+import SwiftASN1
+import Foundation
+
+@usableFromInline struct #{className}: DERImplicitlyTaggable, Sendable {
+    @inlinable static var defaultIdentifier: ASN1Identifier { .sequence }
+    @usableFromInline var extnId: ASN1ObjectIdentifier
+    @usableFromInline var critical: Bool
+    @usableFromInline var extnValue: ASN1OctetString
+
+    @inlinable init(extnId: ASN1ObjectIdentifier, critical: Bool = false, extnValue: ASN1OctetString) {
+        self.extnId = extnId
+        self.critical = critical
+        self.extnValue = extnValue
+    }
+
+    @inlinable init(derEncoded root: ASN1Node, withIdentifier identifier: ASN1Identifier) throws {
+        self = try DER.sequence(root, identifier: identifier) { nodes in
+            let extnId = try ASN1ObjectIdentifier(derEncoded: &nodes)
+
+            // critical is OPTIONAL with DEFAULT FALSE
+            var critical: Bool = false
+            var peekNodes = nodes
+            if let nextNode = peekNodes.next(), nextNode.identifier == .boolean {
+                critical = try Bool(derEncoded: &nodes)
+            }
+
+            let extnValue = try ASN1OctetString(derEncoded: &nodes)
+
+            return #{className}(extnId: extnId, critical: critical, extnValue: extnValue)
+        }
+    }
+
+    @inlinable func serialize(into coder: inout DER.Serializer, withIdentifier identifier: ASN1Identifier) throws {
+        try coder.appendConstructedNode(identifier: identifier) { coder in
+            try coder.serialize(extnId)
+            // Only serialize critical if it's true (per DER rules for DEFAULT FALSE)
+            if critical {
+                try coder.serialize(critical)
+            }
+            try coder.serialize(extnValue)
+        }
+    }
+}
+""")
+  end
+
+  defp algorithmIdentifierClassGeneric(className, modname, saveFlag) do
       save(saveFlag, modname, className, """
 #{emitImprint()}
 import SwiftASN1
@@ -942,6 +1003,8 @@ public let #{swiftName}: Int = #{resolved_val}
           "let #{n}: #{type}? = try DER.optionalImplicitlyTagged(&nodes, tag: ASN1Identifier(tagWithNumber: #{no}, tagClass: .contextSpecific))"
       end
   end
+  def emitSequenceDecoderBodyElement({:DEFAULT, _}, plicit, no, name, type) when plicit == "Implicit", do:
+      emitSequenceDecoderBodyElement(:OPTIONAL, plicit, no, name, type)
 
   def emitSequenceDecoderBodyElement(:OPTIONAL, plicit, no, name, type) when plicit == "Explicit" do
       n = fieldName(name)
@@ -952,6 +1015,8 @@ public let #{swiftName}: Int = #{resolved_val}
           "let #{n}: #{type}? = try DER.optionalExplicitlyTagged(&nodes, tagNumber: #{no}, tagClass: .contextSpecific) { node in return try #{type}(derEncoded: node) }"
       end
   end
+  def emitSequenceDecoderBodyElement({:DEFAULT, _}, plicit, no, name, type) when plicit == "Explicit", do:
+      emitSequenceDecoderBodyElement(:OPTIONAL, plicit, no, name, type)
   def emitSequenceDecoderBodyElement(_, plicit, no, name, type) when plicit == "Explicit" do
       n = fieldName(name)
       boxed = isBoxed(getEnv(:current_struct, ""), name)
@@ -994,6 +1059,8 @@ public let #{swiftName}: Int = #{resolved_val}
           "}"
       end
   end
+  def emitSequenceDecoderBodyElement({:DEFAULT, _}, a, b, name, type), do:
+      emitSequenceDecoderBodyElement(:OPTIONAL, a, b, name, type)
   def emitSequenceDecoderBodyElement(optional, _, _, name, type) do
       n = fieldName(name)
       boxed = isBoxed(getEnv(:current_struct, ""), name)

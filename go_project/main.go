@@ -437,7 +437,7 @@ func requestRobotGoCertificate() {
 		fmt.Printf("Trailing bytes: %d\n", len(rest))
 	}
 	fmt.Printf("Response Body Tag: %d Class: %d\n", respMsg.Body.Tag, respMsg.Body.Class)
-	fmt.Printf("Response full bytes:  %v\n", respMsg.Body.FullBytes)
+	fmt.Printf("Response full bytes:  %#v\n", respMsg)
 	fmt.Printf("Response full bytes hex:  %X\n", respMsg.Body.FullBytes)
 }
 
