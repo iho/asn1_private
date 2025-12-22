@@ -3,7 +3,7 @@
  * Verifies encode/decode functionality of generated C99 headers
  */
 
-#include "DSTU_ALGORITHMIDENTIFIER.h"
+#include "PKIX1EXPLICIT88_ALGORITHMIDENTIFIER.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -24,7 +24,7 @@ static int test_algorithmidentifier_roundtrip(void) {
   printf("\n=== AlgorithmIdentifier Round-Trip Test ===\n");
 
   /* Step 1: Create and populate the structure */
-  DSTU_ALGORITHMIDENTIFIER orig;
+  PKIX1EXPLICIT88_ALGORITHMIDENTIFIER orig;
   memset(&orig, 0, sizeof(orig));
 
   /* Set algorithm OID to 1.2.840.113549.1.1.11 (sha256WithRSAEncryption) */
@@ -55,7 +55,8 @@ static int test_algorithmidentifier_roundtrip(void) {
   asn1_serializer_t serializer;
   asn1_serializer_init(&serializer, buffer, sizeof(buffer));
 
-  asn1_error_t err = DSTU_ALGORITHMIDENTIFIER_encode(&orig, &serializer);
+  asn1_error_t err =
+      PKIX1EXPLICIT88_ALGORITHMIDENTIFIER_encode(&orig, &serializer);
   if (!asn1_is_ok(err)) {
     printf("FAILED: encode: %s\n", asn1_error_code_name(err.code));
     return 1;
@@ -76,7 +77,7 @@ static int test_algorithmidentifier_roundtrip(void) {
   }
 
   /* Step 4: Decode into a new structure */
-  DSTU_ALGORITHMIDENTIFIER decoded;
+  PKIX1EXPLICIT88_ALGORITHMIDENTIFIER decoded;
   memset(&decoded, 0, sizeof(decoded));
 
   asn1_node_t *root = asn1_root_node(&result);
@@ -85,7 +86,7 @@ static int test_algorithmidentifier_roundtrip(void) {
     return 1;
   }
 
-  err = DSTU_ALGORITHMIDENTIFIER_decode(&decoded, root, &result);
+  err = PKIX1EXPLICIT88_ALGORITHMIDENTIFIER_decode(&decoded, root, &result);
   if (!asn1_is_ok(err)) {
     printf("FAILED: decode: %s\n", asn1_error_code_name(err.code));
     return 1;

@@ -791,8 +791,9 @@ defmodule ASN1 do
           :filelib.ensure_dir(Path.join(d, "stub"))
           d <> "/"
         else
-          :filelib.ensure_dir(dir)
-          dir
+          d = if String.ends_with?(dir, "/"), do: dir, else: dir <> "/"
+          :filelib.ensure_dir(d)
+          d
         end
       end
 
