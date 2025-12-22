@@ -677,6 +677,9 @@ defmodule ASN1.GoEmitter do
 
     tags = []
 
+    # Handle GeneralizedTime
+    tags = if inner == :GeneralizedTime, do: ["generalized" | tags], else: tags
+
     # Handle optional
     tags = if optional == :OPTIONAL, do: ["optional" | tags], else: tags
 
@@ -703,7 +706,25 @@ defmodule ASN1.GoEmitter do
           acc = ["tag:#{num}" | acc]
           acc = if class == :APPLICATION, do: ["application" | acc], else: acc
           acc = if class == :PRIVATE, do: ["private" | acc], else: acc
-          acc = if mode == :EXPLICIT, do: ["explicit" | acc], else: acc
+
+          # Check module default if mode is default
+          default_tagging = getEnv(:tag_default, :EXPLICIT) # Default to EXPLICIT if unknown, or IMPLICIT? standard is Explicit.
+          # Actually, we should set this when compiling module.
+
+          # If mode is explicitly EXPLICIT, add it.
+          # If mode is default, check module default.
+          acc =
+            case mode do
+              :EXPLICIT -> ["explicit" | acc]
+              :IMPLICIT -> acc # Go handles implicit by default? Or do we need to strip it? Go is implicit by default for struct tags.
+              _ ->
+                 # If module default is EXPLICIT, we must add explicit.
+                 if getEnv(:current_module_tag_default, :EXPLICIT) == :EXPLICIT do
+                    ["explicit" | acc]
+                 else
+                    acc
+                 end
+            end
           acc
 
         _, acc ->
@@ -846,7 +867,7 @@ defmodule ASN1.GoEmitter do
       end
 
     header = emitHeader(modname)
-    sep = if sanitized_target == "asn1.RawValue", do: " = ", else: " "
+    sep = if sanitized_target in ["asn1.RawValue", "asn1.BitString"], do: " = ", else: " "
     body = "type #{goName}#{sep}#{sanitized_target}"
 
     save(saveFlag, modname, goName, header <> body)

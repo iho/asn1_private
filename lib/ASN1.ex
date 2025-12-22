@@ -83,6 +83,14 @@ defmodule ASN1 do
     {:module, pos, modname, defid, tagdefault, exports, imports, _, declarations} = mod
     setEnv(:current_module, modname)
 
+    # Store TagDefault for emitters
+    case tagdefault do
+      {:DefaultTag, :EXPLICIT} -> setEnv(:current_module_tag_default, :EXPLICIT)
+      {:DefaultTag, :IMPLICIT} -> setEnv(:current_module_tag_default, :IMPLICIT)
+      {:DefaultTag, :AUTOMATIC} -> setEnv(:current_module_tag_default, :AUTOMATIC)
+      _ -> setEnv(:current_module_tag_default, :EXPLICIT) # Default to Explicit if not specified
+    end
+
     # Pre-pass: Register all defined types to support forward references
     :lists.map(
       fn
