@@ -772,7 +772,7 @@ defmodule ASN1.GoEmitter do
     setEnv(name, goName)
 
     header = emitHeader(modname)
-    body = "type #{goName} asn1.RawValue"
+    body = "type #{goName} = asn1.RawValue"
 
     save(saveFlag, modname, goName, header <> body <> "\n")
   end
@@ -846,7 +846,8 @@ defmodule ASN1.GoEmitter do
       end
 
     header = emitHeader(modname)
-    body = "type #{goName} #{sanitized_target}"
+    sep = if sanitized_target == "asn1.RawValue", do: " = ", else: " "
+    body = "type #{goName}#{sep}#{sanitized_target}"
 
     save(saveFlag, modname, goName, header <> body)
   end
