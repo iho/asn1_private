@@ -428,6 +428,19 @@ end
 if System.get_env("ASN1_LANG") == "rust" do
   Application.put_env(:asn1scg, :DSTU_AttributeValue, "ASN1Node")
   Application.put_env(:asn1scg, :DSTU_CertificateSerialNumber, "Vec<u8>")
+
+  # Information Framework / X.500 types to be treated as raw nodes
+  Application.put_env(:asn1scg, :InformationFrameworkAttributeType, "ASN1Node")
+  Application.put_env(:asn1scg, :InformationFrameworkAttributeTypeX, "ASN1Node")
+  Application.put_env(:asn1scg, :InformationFrameworkAttributeValue, "ASN1Node")
+  Application.put_env(:asn1scg, :InformationFrameworkAttributeValueX, "ASN1Node")
+  Application.put_env(:asn1scg, :SelectedAttributeTypesAttributeType, "ASN1Node")
+  Application.put_env(:asn1scg, :SelectedAttributeTypesAttributeValue, "ASN1Node")
+  Application.put_env(:asn1scg, :AuthenticationFrameworkAttributeType, "ASN1Node")
+  Application.put_env(:asn1scg, :AuthenticationFrameworkAttributeValue, "ASN1Node")
+  Application.put_env(:asn1scg, :PKIX1Explicit88AttributeType, "ASN1Node")
+  Application.put_env(:asn1scg, :PKIX1Explicit88AttributeValue, "ASN1Node")
+  Application.put_env(:asn1scg, :DSTUAttributeValue, "ASN1Node")
 end
 
 ptypes = %{
@@ -558,7 +571,19 @@ manual_boxing = [
   # "Identifiers_and_Expressions_Object_Id_Expression.preceding_object_function",
   # "Identifiers_and_Expressions_Object_Id_Expression.superior_object_function",
   "Chat_message_CHATMessage.body",
-  "CHATMessage.body"
+  "CHATMessage.body",
+
+  # LDAP Filter Recursion (Fixes cycle error)
+  "LDAPFilter.and",
+  "LDAPFilter.or",
+  "LDAPFilter.not",
+  "SelectedAttributeTypesCriteria.not",
+
+  # Additional Recursive Types
+  "DirectoryAbstractServiceFilter.not",
+  "InformationFrameworkRefinement.not",
+  "InformationFrameworkAttributeCombination.not",
+  "InformationFrameworkContextCombination.not"
 ]
 
 # "Identifiers_and_Expressions_Numeric_Expression.increment_application",
@@ -610,8 +635,9 @@ IO.puts("Topologically sorting by dependencies...")
 files = DependencyAnalyzer.topological_sort(deps, raw_files, base_dir)
 IO.puts("Sorted order: #{length(files)} files")
 
-if lang == "rust" do
-  modules =
+# Prepare Rust workspace info (actual generation happens after Pass 3)
+rust_modules =
+  if lang == "rust" do
     files
     |> Enum.map(fn filename ->
       path = Path.join(base_dir, filename)
@@ -623,11 +649,9 @@ if lang == "rust" do
     end)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
-
-  workspace_root = Path.expand("asn1_suite")
-  File.mkdir_p!(Path.join(workspace_root, "crates"))
-  WorkspaceGenerator.generate_workspace(modules, workspace_root, deps)
-end
+  else
+    []
+  end
 
 # Detect type cycles for Box wrapping
 IO.puts("Detecting type cycles for Box wrapper...")
@@ -685,5 +709,12 @@ Enum.each(files, fn filename ->
   path = Path.join(base_dir, filename)
   ASN1.compile(true, path)
 end)
+
+# Generate Rust workspace after code generation (so cross-crate deps are tracked)
+if lang == "rust" do
+  workspace_root = Path.expand("asn1_suite")
+  File.mkdir_p!(Path.join(workspace_root, "crates"))
+  WorkspaceGenerator.generate_workspace(rust_modules, workspace_root, deps)
+end
 
 IO.puts("\n=== Complete ===")

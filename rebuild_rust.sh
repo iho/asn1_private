@@ -3,7 +3,7 @@ set -e
 rustup component add rustc-codegen-cranelift
 # Run for basic modules
 echo "Cleaning crates directory..."
-rm -rf asn1_suite/src/crates/*
+rm -rf asn1_suite/crates/*
 
 echo "Generating Rust code for Basic modules..."
 ASN1_LANG=rust elixir basic.ex
