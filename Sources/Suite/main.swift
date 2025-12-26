@@ -953,8 +953,8 @@ public class Console {
      var csrSerializer = DER.Serializer()
      try csr.serialize(into: &csrSerializer)
      let csrDER = csrSerializer.serializedBytes
-     try Data(csrDER).write(to: URL(fileURLWithPath: "generated.csr"))
-     print(": CSR saved to generated.csr (\(csrDER.count) bytes)\n")
+      // try Data(csrDER).write(to: URL(fileURLWithPath: "generated.csr"))
+      // print(": CSR saved to generated.csr (\(csrDER.count) bytes)\n")
      
      // Step 2: Build CMP message
      print(": Step 2: Building CMP p10cr message...")
@@ -1031,9 +1031,6 @@ public class Console {
      var msgSerializer = DER.Serializer()
      try pkiMessage.serialize(into: &msgSerializer)
      let messageBytes = msgSerializer.serializedBytes
-     
-     try Data(messageBytes).write(to: URL(fileURLWithPath: "cmp_request.der"))
-     print(": CMP message saved to cmp_request.der (\(messageBytes.count) bytes)\n")
           // Step 3: Send to server via TCP (Manual HTTP/1.0 to ensure CloseWrite)
       print(": Step 3: Sending to \(server):\(port) via TCP...")
       
@@ -1063,47 +1060,47 @@ public class Console {
           // Update outer var for catch debugging
           responseData = localData
           
-          try localData.write(to: URL(fileURLWithPath: "cmp_response.der"))
-         print(": Response saved to cmp_response.der")
-         
-         // Try to decode the full PKIMessage first
-         do {
-            let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(localData))
-            
-            switch response.body {
-            case .cp(let certRep), .ip(let certRep):
-               print(": SUCCESS! Certificate Response received")
-               let certs = certRep.response
-               print(": Response count: \(certs.count)")
-               for (i, certResp) in certs.enumerated() {
-                   print(": Response #\(i): status=\(certResp.status.status)")
-                   if let kp = certResp.certifiedKeyPair {
-                       print(":  - Certified Key Pair present")
-                       // Try to get the certificate
-                       switch kp.certOrEncCert {
-                       case .certificate(let cmsCert):
-                           print(":  - Certificate received!")
-                           switch cmsCert {
-                           case .x509v3PKCert(let cert):
-                               print(":    Subject: \(cert.toBeSigned.subject)")
-                               print(":    Issuer: \(cert.toBeSigned.issuer)")
-                               print(":    Serial: \(Array(cert.toBeSigned.serialNumber))")
-                               print(":    Validity: \(cert.toBeSigned.validity)")
-                               print(":    Algorithm: \(cert.algorithmIdentifier.algorithm)")
-                           }
-                       case .encryptedCert(_):
-                           print(":  - Encrypted certificate (not decoded)")
-                       }
-                   }
-               }
-            case .error(let error):
-               print(": ERROR response: \(error)")
-            default:
-               print(": Response type: \(response.body)")
-            }
-         } catch {
-            // If full decode fails, try manual extraction
-            print(": Note: Full PKIMessage decode failed (\(error))")
+          // try localData.write(to: URL(fileURLWithPath: "cmp_response.der"))
+          // print(": Response saved to cmp_response.der")
+          
+          // Try to decode the full PKIMessage first
+          do {
+             let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(localData))
+             
+             switch response.body {
+             case .cp(let certRep), .ip(let certRep):
+                print(": SUCCESS! Certificate Response received")
+                let certs = certRep.response
+                print(": Response count: \(certs.count)")
+                for (i, certResp) in certs.enumerated() {
+                    print(": Response #\(i): status=\(certResp.status.status)")
+                    if let kp = certResp.certifiedKeyPair {
+                         print(":  - Certified Key Pair present")
+                         // Decode certificate from CertOrEncCert
+                         if case .certificate(let cmsCert) = kp.certOrEncCert {
+                             print(":  - Certificate received!")
+                             if case .x509v3PKCert(let cert) = cmsCert {
+                                 print(":    Subject: \(cert.toBeSigned.subject)")
+                                 print(":    Issuer: \(cert.toBeSigned.issuer)")
+                                 print(":    Serial: \(Array(cert.toBeSigned.serialNumber))")
+                                 print(":    Validity: \(cert.toBeSigned.validity)")
+                                 print(":    Algorithm: \(cert.toBeSigned.signature.algorithm)")
+                             }
+                         } else {
+                             print(":  - Encrypted certificate (not decoded)")
+                         }
+                    } else {
+                        print(":  - No certified key pair in response")
+                    }
+                }
+             case .error(let error):
+                print(": ERROR response: \(error)")
+             default:
+                print(": Response type: \(response.body)")
+             }
+          } catch {
+             // If full decode fails, try manual extraction
+             print(": Note: Full PKIMessage decode failed (\(error))")
              print(": Attempting manual certificate extraction...")
              if let data = responseData {
                 do {
@@ -1114,17 +1111,15 @@ public class Console {
              } else {
                  print(": No response data available for manual extraction.")
              }
-         }
-         
-         print("\n" + String(repeating: "=", count: 50))
-         print(": CMP FLOW COMPLETED SUCCESSFULLY")
-      } catch {
-         print(": [NETWORK ERROR] \(error)")
-         print(": Request saved for debugging")
-         if let data = responseData {
-             try? Console.debugDecoding(data: data)
-         }
-      }
+          }
+          
+          print("\n" + String(repeating: "=", count: 50))
+          print(": CMP FLOW COMPLETED SUCCESSFULLY")
+       } catch {
+          print(": [NETWORK ERROR] \(error)")
+          // Rethrow to let caller know it failed
+          throw error
+       }
       #else
       print(": Error: Network framework not available")
       #endif
@@ -1235,8 +1230,8 @@ public class Console {
        let certBytes = serializer.serializedBytes
        
        // Save the certificate
-       try Data(certBytes).write(to: URL(fileURLWithPath: "issued_certificate.der"))
-       print(": Certificate saved to issued_certificate.der (\(certBytes.count) bytes)")
+       // try Data(certBytes).write(to: URL(fileURLWithPath: "issued_certificate.der"))
+       // print(": Certificate saved to issued_certificate.der (\(certBytes.count) bytes)")
        
        // Decode as X.509 certificate
        let cert = try AuthenticationFramework_Certificate(derEncoded: certBytes)
