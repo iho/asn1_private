@@ -67,7 +67,7 @@ func sendCMPRequestTCP(host: String, port: UInt16, message: Data) async throws -
             switch state {
             case .ready:
                 // Send the request
-                connection.send(content: message, completion: .contentProcessed { error in
+                connection.send(content: message, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { error in
                     if let error = error {
                         if !hasResumed {
                             hasResumed = true
@@ -819,17 +819,18 @@ public class Console {
         parameters: try ASN1Any(derEncoded: pbmDER)
      )
      
-     // Build sender (empty directoryName) - now fixed to properly use context tag [4]
-     let emptyName = PKIX1Implicit88_GeneralName.directoryName(InformationFramework_Name.rdnSequence(InformationFramework_RDNSequence([])))
+     // Build sender (dNSName) - fixed to use [2] IMPLICIT
+     let senderName = try PKIX1Implicit88_GeneralName.dNSName(ASN1IA5String("robot_go"))
+     let recipientName = try PKIX1Implicit88_GeneralName.dNSName(ASN1IA5String("localhost"))
      
      // Build header
      let header = PKIXCMP_2009_PKIHeader(
         pvno: .cmp2000,
-        sender: emptyName,
-        recipient: emptyName,
+        sender: senderName,
+        recipient: recipientName,
         messageTime: nil,
         protectionAlg: protectionAlg,
-        senderKID: ASN1OctetString(contentBytes: ArraySlice(Array(reference.utf8))),  // Reference string as sender key ID
+        senderKID: nil,  // Removed senderKeyID to match C99/Go behavior
         recipKID: nil,
         transactionID: ASN1OctetString(contentBytes: ArraySlice(transactionId)),
         senderNonce: ASN1OctetString(contentBytes: ArraySlice(senderNonce)),
@@ -989,15 +990,17 @@ public class Console {
         parameters: try ASN1Any(derEncoded: pbmSerializer.serializedBytes)
      )
      
-     // Build sender (empty directoryName) - now fixed to properly use context tag [4]
-     let emptyName = PKIX1Implicit88_GeneralName.directoryName(InformationFramework_Name.rdnSequence(InformationFramework_RDNSequence([])))
+     // Build sender (dNSName) - fixed to use [2] IMPLICIT
+     let senderName = try PKIX1Implicit88_GeneralName.dNSName(ASN1IA5String(subject))
+     let recipientName = try PKIX1Implicit88_GeneralName.dNSName(ASN1IA5String("localhost"))
+
      let header = PKIXCMP_2009_PKIHeader(
         pvno: .cmp2000,
-        sender: emptyName,
-        recipient: emptyName,
+        sender: senderName,
+        recipient: recipientName,
         messageTime: nil,
         protectionAlg: protectionAlg,
-        senderKID: ASN1OctetString(contentBytes: ArraySlice(Array(reference.utf8))),
+        senderKID: nil,
         recipKID: nil,
         transactionID: ASN1OctetString(contentBytes: ArraySlice(transactionId)),
         senderNonce: ASN1OctetString(contentBytes: ArraySlice(senderNonce)),
@@ -1031,50 +1034,214 @@ public class Console {
      
      try Data(messageBytes).write(to: URL(fileURLWithPath: "cmp_request.der"))
      print(": CMP message saved to cmp_request.der (\(messageBytes.count) bytes)\n")
-     
-     // Step 3: Send to server via HTTP
-     print(": Step 3: Sending to \(server):\(port) via HTTP...")
-     let serverURL = URL(string: "http://\(server):\(port)/")!
-     
-     do {
-        let responseData = try await sendCMPRequest(to: serverURL, message: Data(messageBytes))
-        print(": Response received: \(responseData.count) bytes")
-        
-        try responseData.write(to: URL(fileURLWithPath: "cmp_response.der"))
-        print(": Response saved to cmp_response.der")
-        
-        let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(responseData))
-        
-        switch response.body {
-        case .cp(let certRep), .ip(let certRep):
-           print(": SUCCESS! Response received (type: \(response.body))")
-           if let extraCerts = response.extraCerts {
-               print(": Extra certificates: \(extraCerts.count)")
-           }
-           if let caPubs = certRep.caPubs {
-               print(": CA Pubs: \(caPubs.count)")
-           }
-           let certs = certRep.response
-           print(": Response count: \(certs.count)")
-           for (i, certResp) in certs.enumerated() {
-               print(": Response #\(i): status=\(certResp.status.status)")
-               if let kp = certResp.certifiedKeyPair {
-                   print(":  - Certified Key Pair present")
+          // Step 3: Send to server via TCP (Manual HTTP/1.0 to ensure CloseWrite)
+      print(": Step 3: Sending to \(server):\(port) via TCP...")
+      
+      let httpHeader = "POST / HTTP/1.0\r\n" +
+                       "Content-Length: \(messageBytes.count)\r\n" +
+                       "\r\n"
+      
+      var manualRequest = Data(httpHeader.utf8)
+      manualRequest.append(Data(messageBytes))
+      
+      #if canImport(Network)
+           do {
+          var responseData = try await sendCMPRequestTCP(host: server, port: UInt16(port), message: manualRequest)
+          print(": Response received: \(responseData.count) bytes")
+          
+          // Strip HTTP headers from response if present
+          // Just find data sequence for \r\n\r\n (0D 0A 0D 0A)
+          if let headerEndRange = responseData.range(of: Data([0x0D, 0x0A, 0x0D, 0x0A])) {
+               let bodyStart = headerEndRange.upperBound
+               responseData = responseData.subdata(in: bodyStart..<responseData.endIndex)
+               print(": Stripped HTTP headers.")
+          }
+          
+          try responseData.write(to: URL(fileURLWithPath: "cmp_response.der"))
+         print(": Response saved to cmp_response.der")
+         
+         // Try to decode the full PKIMessage first
+         do {
+            let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(responseData))
+            
+            switch response.body {
+            case .cp(let certRep), .ip(let certRep):
+               print(": SUCCESS! Certificate Response received")
+               let certs = certRep.response
+               print(": Response count: \(certs.count)")
+               for (i, certResp) in certs.enumerated() {
+                   print(": Response #\(i): status=\(certResp.status.status)")
+                   if let kp = certResp.certifiedKeyPair {
+                       print(":  - Certified Key Pair present")
+                       // Try to get the certificate
+                       switch kp.certOrEncCert {
+                       case .certificate(let cmsCert):
+                           print(":  - Certificate received!")
+                           switch cmsCert {
+                           case .x509v3PKCert(let cert):
+                               print(":    Subject: \(cert.toBeSigned.subject)")
+                               print(":    Issuer: \(cert.toBeSigned.issuer)")
+                               print(":    Serial: \(Array(cert.toBeSigned.serialNumber))")
+                               print(":    Validity: \(cert.toBeSigned.validity)")
+                               print(":    Algorithm: \(cert.algorithmIdentifier.algorithm)")
+                           }
+                       case .encryptedCert(_):
+                           print(":  - Encrypted certificate (not decoded)")
+                       }
+                   }
                }
-           }
-        case .error(let error):
-           print(": ERROR response: \(error)")
-        default:
-           print(": Response type: \(response.body)")
-        }
-        
-        print("\n" + String(repeating: "=", count: 50))
-        print(": CMP FLOW COMPLETED SUCCESSFULLY")
-     } catch {
-        print(": [NETWORK ERROR] \(error)")
-        print(": Request saved for debugging")
-        try? Console.debugDecoding()
-     }
+            case .error(let error):
+               print(": ERROR response: \(error)")
+            default:
+               print(": Response type: \(response.body)")
+            }
+         } catch {
+            // If full decode fails, try manual extraction
+            print(": Note: Full PKIMessage decode failed (\(error))")
+            print(": Attempting manual certificate extraction...")
+            do {
+               try extractCertificateManually(from: Array(responseData))
+            } catch {
+               print(": Manual extraction also failed: \(error)")
+            }
+         }
+         
+         print("\n" + String(repeating: "=", count: 50))
+         print(": CMP FLOW COMPLETED SUCCESSFULLY")
+      } catch {
+         print(": [NETWORK ERROR] \(error)")
+         print(": Request saved for debugging")
+         try? Console.debugDecoding()
+      }
+      #else
+      print(": Error: Network framework not available")
+      #endif
+   }
+   
+   /// Manually extract certificate from CMP response when generated types fail
+   static func extractCertificateManually(from bytes: [UInt8]) throws {
+       let der = try DER.parse(bytes)
+       
+       // Navigate: PKIMessage -> body [3] -> CertRepMessage -> response -> CertResponse -> certifiedKeyPair -> cert
+       guard case .constructed(let rootNodes) = der.content else {
+           print(": Error: Root is not constructed")
+           return
+       }
+       
+       var rootIter = rootNodes.makeIterator()
+       _ = rootIter.next() // header
+       
+       guard let bodyNode = rootIter.next() else {
+           print(": Error: Missing body")
+           return
+       }
+       
+       print(": Body tag: \(bodyNode.identifier)")
+       
+       // Body should be [3] (cp) or [1] (ip)
+       guard case .constructed(let bodyContent) = bodyNode.content else {
+           print(": Error: Body is not constructed")
+           return
+       }
+       
+       var bodyIter = bodyContent.makeIterator()
+       guard let certRepNode = bodyIter.next() else {
+           print(": Error: Missing CertRepMessage")
+           return
+       }
+       
+       // CertRepMessage is SEQUENCE { caPubs [1] OPTIONAL, response SEQUENCE OF CertResponse }
+       guard case .constructed(let certRepContent) = certRepNode.content else {
+           print(": Error: CertRepMessage is not constructed")
+           return
+       }
+       
+       var certRepIter = certRepContent.makeIterator()
+       guard let responseSeqNode = certRepIter.next() else {
+           print(": Error: Missing response sequence")
+           return
+       }
+       
+       // response is SEQUENCE OF CertResponse
+       guard case .constructed(let responseContent) = responseSeqNode.content else {
+           print(": Error: Response is not constructed")
+           return
+       }
+       
+       var responseIter = responseContent.makeIterator()
+       guard let certResponseNode = responseIter.next() else {
+           print(": Error: Missing CertResponse")
+           return
+       }
+       
+       // CertResponse is SEQUENCE { certReqId, status, certifiedKeyPair [0] OPTIONAL }
+       guard case .constructed(let certResponseContent) = certResponseNode.content else {
+           print(": Error: CertResponse is not constructed")
+           return
+       }
+       
+       var certRespIter = certResponseContent.makeIterator()
+       _ = certRespIter.next() // certReqId
+       _ = certRespIter.next() // status
+       
+       guard let keyPairNode = certRespIter.next() else {
+           print(": Error: Missing certifiedKeyPair")
+           return
+       }
+       
+       // certifiedKeyPair [0] -> CertifiedKeyPair
+       guard case .constructed(let keyPairContent) = keyPairNode.content else {
+           print(": Error: KeyPair is not constructed")
+           return
+       }
+       
+       var keyPairIter = keyPairContent.makeIterator()
+       guard let certOrEncNode = keyPairIter.next() else {
+           print(": Error: Missing certOrEncCert")
+           return
+       }
+       
+       // certOrEncCert is CertOrEncCert -> certificate [0] or encryptedCert [1]
+       guard case .constructed(let certContent) = certOrEncNode.content else {
+           print(": Error: CertOrEncCert is not constructed")
+           return
+       }
+       
+       var certIter = certContent.makeIterator()
+       guard let cmsCertNode = certIter.next() else {
+           print(": Error: Missing CMPCertificate")
+           return
+       }
+       
+       // CMPCertificate is Certificate (the actual X.509 cert)
+       // Try to decode it as AuthenticationFramework_Certificate
+       print(": Found certificate node, attempting decode...")
+       
+       // Serialize this node back to DER
+       var serializer = DER.Serializer()
+       try serializer.serialize(cmsCertNode)
+       let certBytes = serializer.serializedBytes
+       
+       // Save the certificate
+       try Data(certBytes).write(to: URL(fileURLWithPath: "issued_certificate.der"))
+       print(": Certificate saved to issued_certificate.der (\(certBytes.count) bytes)")
+       
+       // Decode as X.509 certificate
+       let cert = try AuthenticationFramework_Certificate(derEncoded: certBytes)
+       
+       print("")
+       print(String(repeating: "=", count: 50))
+       print(": ISSUED CERTIFICATE")
+       print(String(repeating: "=", count: 50))
+       print(": Version: \(cert.toBeSigned.version?.rawValue ?? 0)")
+       print(": Serial Number: \(Array(cert.toBeSigned.serialNumber).map { String(format: "%02X", $0) }.joined(separator: ":"))")
+       print(": Signature Algorithm: \(cert.toBeSigned.signature.algorithm)")
+       print(": Issuer: \(cert.toBeSigned.issuer)")
+       print(": Not Before: \(cert.toBeSigned.validity.notBefore)")
+       print(": Not After: \(cert.toBeSigned.validity.notAfter)")
+       print(": Subject: \(cert.toBeSigned.subject)")
+       print(": Public Key Algorithm: \(cert.toBeSigned.subjectPublicKeyInfo.algorithm.algorithm)")
+       print(String(repeating: "=", count: 50))
    }
    
    public static func debugDecoding() throws {
@@ -1143,8 +1310,8 @@ public class Console {
        try showPentanomial(data: [48, 9, 2, 1, 1, 2, 1, 2, 2, 1, 3])
        try showCertificateData(data: [48, 129, 129, 48, 107, 160, 3, 2, 1, 2, 2, 3, 1, 226, 64, 48, 10, 6, 8, 42, 134, 72, 206, 61, 4, 3, 2, 48, 13, 49, 11, 48, 9, 6, 3, 85, 4, 3, 19, 2, 67, 65, 48, 30, 23, 13, 50, 51, 48, 49, 48, 49, 49, 50, 48, 48, 48, 48, 90, 23, 13, 51, 48, 48, 49, 48, 49, 49, 50, 48, 48, 48, 48, 90, 48, 15, 49, 13, 48, 11, 6, 3, 85, 4, 3, 19, 4, 85, 115, 101, 114, 48, 19, 48, 9, 6, 7, 42, 134, 72, 206, 61, 2, 1, 3, 6, 0, 4, 0, 0, 0, 0, 48, 10, 6, 8, 42, 134, 72, 206, 61, 4, 3, 2, 3, 6, 0, 1, 2, 3, 4, 5])
        // TODO: Fix Extension type generation - currently has AlgorithmIdentifier fields instead of Extension fields
-       // try showCertificate(file: "ca.crt")
-       // try verifyX509(file: "ca.crt", output: "verified.der")
+       try showCertificate(file: "ca.crt")
+       try verifyX509(file: "ca.crt", output: "verified.der")
        try generateX509()
        try verifyX509(file: "generated.crt", output: "generated_verified.der")
        // try showContentInfo(file: "data.bin")  // Also uses Extension types
