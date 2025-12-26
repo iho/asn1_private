@@ -519,7 +519,7 @@ int main(void) {
         asn1_parse_result_t result;
         asn1_parse_result_init(&result, nodes, 512);
         asn1_error_t err = asn1_parse((const uint8_t *)body_start, body_len,
-                                      ASN1_ENCODING_BER, &result);
+                                      ASN1_ENCODING_DER, &result);
         if (!asn1_is_ok(err)) {
           printf("FAILED to parse response ASN.1: code %d\n", err.code);
         } else {
