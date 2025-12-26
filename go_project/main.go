@@ -11,14 +11,12 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -235,43 +233,13 @@ func requestRobotGoCertificate() {
 	var err error
 
 	// 1. Load or Generate ECC Key (secp384r1)
-	if keyBytes, err := os.ReadFile("key.pem"); err == nil {
-		block, _ := pem.Decode(keyBytes)
-		if block == nil {
-			log.Fatalf("failed to decode key.pem")
-		}
-		// Try parsing as EC private key or PKCS8
-		csrKey, err = x509.ParseECPrivateKey(block.Bytes)
-		if err != nil {
-			// Try PKCS8
-			if pkcs8, err2 := x509.ParsePKCS8PrivateKey(block.Bytes); err2 == nil {
-				if ecKey, ok := pkcs8.(*ecdsa.PrivateKey); ok {
-					csrKey = ecKey
-				} else {
-					log.Fatal("key.pem is not an EC key")
-				}
-			} else {
-				log.Fatalf("failed to parse EC key: %v", err)
-			}
-		}
-		fmt.Println("Loaded existing key.pem")
-	} else {
-		fmt.Println("Generating new secp384r1 key...")
-		csrKey, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-		if err != nil {
-			log.Fatalf("Failed to generate key: %v", err)
-		}
-		// Save key
-		der, err := x509.MarshalECPrivateKey(csrKey)
-		if err != nil {
-			log.Fatalf("Marshaling key failed: %v", err)
-		}
-		pemBlock := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
-		if err := os.WriteFile("key.pem", pem.EncodeToMemory(pemBlock), 0600); err != nil {
-			log.Fatalf("Failed to write key.pem: %v", err)
-		}
-		fmt.Println("Saved key.pem")
+	// 1. Generate new ECC Key (secp384r1)
+	fmt.Println("Generating new secp384r1 key...")
+	csrKey, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		log.Fatalf("Failed to generate key: %v", err)
 	}
+	// No saving to disk
 
 	// 2. Generate CSR
 	template := &x509.CertificateRequest{
@@ -286,11 +254,7 @@ func requestRobotGoCertificate() {
 		log.Fatalf("Failed to create CSR: %v", err)
 	}
 
-	// Save CSR for debugging/curl check
-	pemCSR := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
-	if err := os.WriteFile("csr.pem", pemCSR, 0644); err != nil {
-		log.Fatalf("Failed to write csr.pem: %v", err)
-	}
+	// No saving to disk
 	fmt.Printf("Generated CSR (len=%d)\n", len(csrDER))
 
 	// 3. Construct PKIBody
