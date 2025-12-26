@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -10,11 +11,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -64,6 +68,10 @@ func encodeContextSpecificIA5String(tag int, value string) ([]byte, error) {
 		return nil, fmt.Errorf("empty IA5 encoding for %q", value)
 	}
 
+	// Manually construct [2] IMPLICIT IA5String (Primitive)
+	// We want Class=2, Tag=2, Bytes=raw string bytes
+	// But asn1.MarshalWithParams("ia5") returns a Tagged value (Tag 22).
+	// We replace the tag byte.
 	ia5[0] = byte(0x80 | tag)
 	return ia5, nil
 }
@@ -219,51 +227,88 @@ func sendCMPRequest(urlStr string, data []byte) ([]byte, error) {
 }
 
 // requestRobotGoCertificate constructs a PKIMessage with 'p10cr' body (Tag 4)
+// requestRobotGoCertificate constructs a PKIMessage with 'p10cr' body (Tag 4) using DER encoding
 func requestRobotGoCertificate() {
 	fmt.Println("Requesting Certificate for 'robot_go' using p10cr (PKCS#10)...")
 
-	// 1. Generate Key Pair (ECDSA P-384 to match Swift)
-	privKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	if err != nil {
-		log.Fatalf("failed to generate private key: %v", err)
+	var csrKey *ecdsa.PrivateKey
+	var err error
+
+	// 1. Load or Generate ECC Key (secp384r1)
+	if keyBytes, err := os.ReadFile("key.pem"); err == nil {
+		block, _ := pem.Decode(keyBytes)
+		if block == nil {
+			log.Fatalf("failed to decode key.pem")
+		}
+		// Try parsing as EC private key or PKCS8
+		csrKey, err = x509.ParseECPrivateKey(block.Bytes)
+		if err != nil {
+			// Try PKCS8
+			if pkcs8, err2 := x509.ParsePKCS8PrivateKey(block.Bytes); err2 == nil {
+				if ecKey, ok := pkcs8.(*ecdsa.PrivateKey); ok {
+					csrKey = ecKey
+				} else {
+					log.Fatal("key.pem is not an EC key")
+				}
+			} else {
+				log.Fatalf("failed to parse EC key: %v", err)
+			}
+		}
+		fmt.Println("Loaded existing key.pem")
+	} else {
+		fmt.Println("Generating new secp384r1 key...")
+		csrKey, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		if err != nil {
+			log.Fatalf("Failed to generate key: %v", err)
+		}
+		// Save key
+		der, err := x509.MarshalECPrivateKey(csrKey)
+		if err != nil {
+			log.Fatalf("Marshaling key failed: %v", err)
+		}
+		pemBlock := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
+		if err := os.WriteFile("key.pem", pem.EncodeToMemory(pemBlock), 0600); err != nil {
+			log.Fatalf("Failed to write key.pem: %v", err)
+		}
+		fmt.Println("Saved key.pem")
 	}
 
-	// 2. Create Certificate Request (PKCS#10)
-	csrTemplate := x509.CertificateRequest{
+	// 2. Generate CSR
+	template := &x509.CertificateRequest{
 		Subject: pkix.Name{
 			CommonName: "robot_go",
 		},
 		SignatureAlgorithm: x509.ECDSAWithSHA384,
 	}
 
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &csrTemplate, privKey)
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, template, csrKey)
 	if err != nil {
-		log.Fatalf("failed to create certificate request: %v", err)
+		log.Fatalf("Failed to create CSR: %v", err)
+	}
+
+	// Save CSR for debugging/curl check
+	pemCSR := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+	if err := os.WriteFile("csr.pem", pemCSR, 0644); err != nil {
+		log.Fatalf("Failed to write csr.pem: %v", err)
 	}
 	fmt.Printf("Generated CSR (len=%d)\n", len(csrDER))
 
 	// 3. Construct PKIBody
 	// PKIBody ::= CHOICE { p10cr [4] CertificationRequest, ... }
-	// PKIXCMP-2009 is EXPLICIT TAGS.
-	// So [4] wraps the CertificationRequest (SEQUENCE).
-	// We use Tag 4 Context-Specific Constructed to wrap the inner sequence.
-	// asn1.RawValue with 'Bytes' set to the full DER of the inner type results in EXPLICIT tagging.
+	// We use EXPLICIT Tagging [4].
+	// csrDER starts with 0x30 (SEQUENCE).
+	// We wrap it in [4] EXPLICIT.
 	bodyRaw := asn1.RawValue{
-		Class:      asn1.ClassContextSpecific,
+		Class:      2,
 		Tag:        4,
 		IsCompound: true,
-		Bytes:      csrDER, // csrDER is '30 ...' (Sequence)
+		Bytes:      csrDER,
 	}
-	// Result on wire: A4 Len 30 Len ... (EXPLICIT)
-
-	// Create body alias
 	body := pkixcmp2009.X2009PKIBody(bodyRaw)
 
 	// 4. Header
 	sender := mustDNSGeneralName("robot_go")
 	recipient := mustDNSGeneralName("localhost")
-	debugGeneralName("request sender", sender)
-	debugGeneralName("request recipient", recipient)
 
 	// Generate TransactionID and SenderNonce
 	transID := make([]byte, 16)
@@ -280,12 +325,6 @@ func requestRobotGoCertificate() {
 	rand.Read(salt)
 	iterationCount := 10000
 
-	// PBMParameter ::= SEQUENCE {
-	//   salt                OCTET STRING,
-	//   owf                 AlgorithmIdentifier,
-	//   iterationCount      INTEGER,
-	//   mac                 AlgorithmIdentifier
-	// }
 	type AlgorithmIdentifier struct {
 		Algorithm  asn1.ObjectIdentifier
 		Parameters asn1.RawValue `asn1:"optional"`
@@ -297,9 +336,7 @@ func requestRobotGoCertificate() {
 		MAC            AlgorithmIdentifier
 	}
 
-	// OWF: SHA-256 (2.16.840.1.101.3.4.2.1)
 	owfAlg := AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}}
-	// MAC: HMAC-SHA256 (1.2.840.113549.2.9)
 	macAlg := AlgorithmIdentifier{Algorithm: asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 9}}
 
 	pbmParams := PBMParameter{
@@ -313,93 +350,65 @@ func requestRobotGoCertificate() {
 		log.Fatalf("failed to marshal PBM params: %v", err)
 	}
 
-	protectionAlg := asn1.RawValue{
-		Tag:        16, // SEQUENCE
-		Class:      0,
-		IsCompound: true,
-		// AlgorithmIdentifier SEQUENCE { algorithm, parameters }
-		// But here we construct the outer wrapper manually or use helper?
-		// ProtectionAlg is AlgorithmIdentifier.
-		// We construct it manually to ensure params are embedded correctly as ANY defined by algorithm.
-	}
-
-	// Construct full AlgorithmIdentifier for ProtectionAlg
+	// ProtectionAlg: [1] EXPLICIT AlgorithmIdentifier
+	// We use RawValue to wrap the AlgorithmIdentifier in Context 1 Explicit
+	// But simply setting correct tag on AlgorithmIdentifier struct might work if we had one.
+	// Manual wrap:
 	fullProtAlg := AlgorithmIdentifier{
 		Algorithm:  pbmOID,
 		Parameters: asn1.RawValue{FullBytes: pbmParamsBytes},
 	}
 	fullProtAlgBytes, _ := asn1.Marshal(fullProtAlg)
 
-	// Manually wrap in [1] EXPLICIT because RawValue with FullBytes ignores struct tags in some Go versions
-	// or we just want to be sure.
-	// Tag 1 Context Constructed = A1
-	protLen := len(fullProtAlgBytes)
-	wrappedProt := make([]byte, 0, protLen+5)
+	// Wrap in [1] EXPLICIT
+	// A1 Length ...
+	wrappedProt := make([]byte, 0, len(fullProtAlgBytes)+5)
 	wrappedProt = append(wrappedProt, 0xA1)
-	if protLen < 128 {
-		wrappedProt = append(wrappedProt, byte(protLen))
-	} else if protLen < 256 {
-		wrappedProt = append(wrappedProt, 0x81, byte(protLen))
+	if len(fullProtAlgBytes) < 128 {
+		wrappedProt = append(wrappedProt, byte(len(fullProtAlgBytes)))
+	} else if len(fullProtAlgBytes) < 256 {
+		wrappedProt = append(wrappedProt, 0x81, byte(len(fullProtAlgBytes)))
 	} else {
-		wrappedProt = append(wrappedProt, 0x82, byte(protLen>>8), byte(protLen))
+		wrappedProt = append(wrappedProt, 0x82, byte(len(fullProtAlgBytes)>>8), byte(len(fullProtAlgBytes)))
 	}
 	wrappedProt = append(wrappedProt, fullProtAlgBytes...)
 
-	protectionAlg.FullBytes = wrappedProt
+	protectionAlgRaw := asn1.RawValue{FullBytes: wrappedProt}
 
 	header := pkixcmp2009.X2009PKIHeader{
 		Pvno:          2,
 		Sender:        sender,
 		Recipient:     recipient,
-		MessageTime:   time.Now(),                                       // Add timestamp just in case
-		ProtectionAlg: protectionAlg,                                    // Now populated
-		SenderKID:     pkix1implicit2009.X2009KeyIdentifier("robot_go"), // Reference
+		MessageTime:   time.Now().UTC().Truncate(time.Second),
+		ProtectionAlg: protectionAlgRaw,
+
 		TransactionID: transID,
 		SenderNonce:   nonce,
 	}
 
-	// Calculate Protection
-	// 1. Derivate Key
-	// Server logic: baseKey(pass, salt, iter, owf) ->
-	// acc = hash(pass <> salt)
-	// loop iter-1 times: acc = hash(acc)
-	// return acc
-	pass := []byte("0000") // Secret from Swift example
+	// Calc MAC
+	pass := []byte("0000")
 	key := deriveKey(pass, salt, iterationCount)
 
-	// 2. ProtectedPart = SEQUENCE { header, body }
-	// We need the exact DER bytes of header and body.
-	// Marshal them separately?
-	// Note: header and body are already defined.
-	// We need to marshal them as a sequence.
-
 	headerBytes, _ := asn1.Marshal(header)
-
-	// Body is already asn1.RawValue (tag [4] explicit).
-	// We need the full bytes of body.
 	bodyBytes, _ := asn1.Marshal(body)
-
-	protectedPartDer := make([]byte, 0, len(headerBytes)+len(bodyBytes)+10)
-	protectedPartDer = append(protectedPartDer, 0x30) // Sequence Tag
-	// Length... lazy way: compute length
-	contentLen := len(headerBytes) + len(bodyBytes)
-	if contentLen < 128 {
-		protectedPartDer = append(protectedPartDer, byte(contentLen))
+	// ProtectedPart = SEQUENCE { header, body }
+	partLen := len(headerBytes) + len(bodyBytes)
+	protectedPart := make([]byte, 0, partLen+10)
+	protectedPart = append(protectedPart, 0x30)
+	if partLen < 128 {
+		protectedPart = append(protectedPart, byte(partLen))
+	} else if partLen < 256 {
+		protectedPart = append(protectedPart, 0x81, byte(partLen))
 	} else {
-		// Multi-byte length (simplified for expected size < 65535)
-		if contentLen < 256 {
-			protectedPartDer = append(protectedPartDer, 0x81, byte(contentLen))
-		} else {
-			protectedPartDer = append(protectedPartDer, 0x82, byte(contentLen>>8), byte(contentLen))
-		}
+		protectedPart = append(protectedPart, 0x82, byte(partLen>>8), byte(partLen))
 	}
-	protectedPartDer = append(protectedPartDer, headerBytes...)
-	protectedPartDer = append(protectedPartDer, bodyBytes...)
+	protectedPart = append(protectedPart, headerBytes...)
+	protectedPart = append(protectedPart, bodyBytes...)
 
-	mac := calculateMAC(key, protectedPartDer)
+	mac := calculateMAC(key, protectedPart)
 
-	// Protection BIT STRING
-	protection := asn1.BitString{
+	protection := pkixcmp2009.X2009PKIProtection{
 		Bytes:     mac,
 		BitLength: len(mac) * 8,
 	}
@@ -407,38 +416,61 @@ func requestRobotGoCertificate() {
 	msg := pkixcmp2009.X2009PKIMessage{
 		Header:     header,
 		Body:       body,
-		Protection: pkixcmp2009.X2009PKIProtection(protection),
+		Protection: protection,
 	}
 
-	// Marshal PKIMessage
 	msgBytes, err := asn1.Marshal(msg)
 	if err != nil {
 		log.Fatalf("failed to marshal PKIMessage: %v", err)
 	}
 
-	fmt.Printf("Sending PKIMessage (len=%d) to CA...\n", len(msgBytes))
-	fmt.Printf("HEX: %X\n", msgBytes) // DEBUG HEX DUMP
+	fmt.Printf("Sending PKIMessage (len=%d) to CA (DER encoded)....\n", len(msgBytes))
+	fmt.Printf("HEX: %X\n", msgBytes)
 
-	// Send to CA
-	respBytes, err := sendCMPRequest("http://localhost:8829/", msgBytes)
+	conn, err := net.Dial("tcp", "localhost:8829")
 	if err != nil {
-		log.Fatalf("Failed to send request: %v", err)
+		log.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	headerStr := fmt.Sprintf("POST / HTTP/1.0\r\nContent-Length: %d\r\n\r\n", len(msgBytes))
+	fmt.Printf("Sending Header: %s", headerStr)
+	conn.Write([]byte(headerStr))
+	conn.Write(msgBytes)
+
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		fmt.Println("Closing Write side of TCP connection...")
+		if err := tcpConn.CloseWrite(); err != nil {
+			fmt.Printf("Error closing write: %v\n", err)
+		}
 	}
 
-	fmt.Printf("Success! Received response (len=%d)\n", len(respBytes))
+	// Set Read Deadline to prevent hanging
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
-	// Decode response
-	var respMsg pkixcmp2009.X2009PKIMessage
-	rest, err := asn1.Unmarshal(respBytes, &respMsg)
+	fmt.Println("Waiting for response...")
+	respDataAll, err := ioutil.ReadAll(conn)
 	if err != nil {
-		log.Fatalf("Failed to decode response: %v", err)
+		log.Fatalf("Read response failed: %v", err)
 	}
-	if len(rest) > 0 {
-		fmt.Printf("Trailing bytes: %d\n", len(rest))
+	fmt.Printf("Received %d bytes\n", len(respDataAll))
+
+	// Find the start of the body (after double newline)
+	idx := bytes.Index(respDataAll, []byte("\r\n\r\n"))
+	if idx == -1 {
+		log.Fatal("Could not find body in response")
 	}
-	fmt.Printf("Response Body Tag: %d Class: %d\n", respMsg.Body.Tag, respMsg.Body.Class)
-	fmt.Printf("Response full bytes:  %#v\n", respMsg)
-	fmt.Printf("Response full bytes hex:  %X\n", respMsg.Body.FullBytes)
+	respBody := respDataAll[idx+4:]
+
+	fmt.Printf("Response full bytes hex: %X\n", respBody)
+	// Parse response
+	respMsg := pkixcmp2009.X2009PKIMessage{}
+	if rest, err := asn1.Unmarshal(respBody, &respMsg); err != nil {
+		log.Fatalf("Response Unmarshal failed: %v\nRemaining: %X", err, rest)
+	}
+
+	fmt.Println("Successfully Decoded Response!")
+	fmt.Printf("Body Tag: %d\n", respMsg.Body.Tag)
 }
 
 // testXSeries tests types from the X.500 series packages
