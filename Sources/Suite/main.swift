@@ -1045,24 +1045,30 @@ public class Console {
       manualRequest.append(Data(messageBytes))
       
       #if canImport(Network)
+       var responseData: Data? = nil
            do {
-          var responseData = try await sendCMPRequestTCP(host: server, port: UInt16(port), message: manualRequest)
-          print(": Response received: \(responseData.count) bytes")
+           let receivedData = try await sendCMPRequestTCP(host: server, port: UInt16(port), message: manualRequest)
+           responseData = receivedData
+           var localData = receivedData
+          print(": Response received: \(localData.count) bytes")
           
           // Strip HTTP headers from response if present
           // Just find data sequence for \r\n\r\n (0D 0A 0D 0A)
-          if let headerEndRange = responseData.range(of: Data([0x0D, 0x0A, 0x0D, 0x0A])) {
+          if let headerEndRange = localData.range(of: Data([0x0D, 0x0A, 0x0D, 0x0A])) {
                let bodyStart = headerEndRange.upperBound
-               responseData = responseData.subdata(in: bodyStart..<responseData.endIndex)
+               localData = localData.subdata(in: bodyStart..<localData.endIndex)
                print(": Stripped HTTP headers.")
           }
           
-          try responseData.write(to: URL(fileURLWithPath: "cmp_response.der"))
+          // Update outer var for catch debugging
+          responseData = localData
+          
+          try localData.write(to: URL(fileURLWithPath: "cmp_response.der"))
          print(": Response saved to cmp_response.der")
          
          // Try to decode the full PKIMessage first
          do {
-            let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(responseData))
+            let response = try PKIXCMP_2009_PKIMessage(derEncoded: Array(localData))
             
             switch response.body {
             case .cp(let certRep), .ip(let certRep):
@@ -1098,12 +1104,16 @@ public class Console {
          } catch {
             // If full decode fails, try manual extraction
             print(": Note: Full PKIMessage decode failed (\(error))")
-            print(": Attempting manual certificate extraction...")
-            do {
-               try extractCertificateManually(from: Array(responseData))
-            } catch {
-               print(": Manual extraction also failed: \(error)")
-            }
+             print(": Attempting manual certificate extraction...")
+             if let data = responseData {
+                do {
+                   try extractCertificateManually(from: Array(data))
+                } catch {
+                   print(": Manual extraction also failed: \(error)")
+                }
+             } else {
+                 print(": No response data available for manual extraction.")
+             }
          }
          
          print("\n" + String(repeating: "=", count: 50))
@@ -1111,7 +1121,9 @@ public class Console {
       } catch {
          print(": [NETWORK ERROR] \(error)")
          print(": Request saved for debugging")
-         try? Console.debugDecoding()
+         if let data = responseData {
+             try? Console.debugDecoding(data: data)
+         }
       }
       #else
       print(": Error: Network framework not available")
@@ -1243,12 +1255,10 @@ public class Console {
        print(": Public Key Algorithm: \(cert.toBeSigned.subjectPublicKeyInfo.algorithm.algorithm)")
        print(String(repeating: "=", count: 50))
    }
-   
-   public static func debugDecoding() throws {
-        print("\n: Debugging CMP Response decoding...")
-        let data = try Data(contentsOf: URL(fileURLWithPath: "cmp_response.der"))
-        let bytes = Array(data)
-        print(": Read \(bytes.count) bytes")
+      public static func debugDecoding(data: Data) throws {
+         print("\n: Debugging CMP Response decoding...")
+         let bytes = Array(data)
+         print(": Read \(bytes.count) bytes")
         
         var der = try DER.parse(bytes)
         print(": Root node identifier: \(der.identifier)") // Should be SEQUENCE (universal 16)
