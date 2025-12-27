@@ -1,0 +1,2 @@
+
+export const PKIX1Explicit88_ub_organizational_unit_name_length = 32;

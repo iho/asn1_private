@@ -1,0 +1,2 @@
+
+export const KEP_gost34311 = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"member-body", 2}, {:NamedNumber, :ua, 804}, {:NamedNumber, :root, 2}, {:NamedNumber, :security, 1}, {:NamedNumber, :cryptography, 1}, {:NamedNumber, :pki, 1}, {:NamedNumber, :"pki-alg", 1}, {:NamedNumber, :"pki-alg-hash", 2}, 1];

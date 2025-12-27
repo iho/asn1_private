@@ -1,0 +1,2 @@
+
+export const PKIX1Explicit88_ub_domain_defined_attribute_value_length = 128;

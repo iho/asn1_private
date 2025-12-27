@@ -1,0 +1,2 @@
+
+export type AuthenticationFramework_AttributeCertificate_toBeSigned = any;

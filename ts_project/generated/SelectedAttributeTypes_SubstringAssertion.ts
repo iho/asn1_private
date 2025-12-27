@@ -1,0 +1,4 @@
+
+import { SelectedAttributeTypes_SubstringAssertion_Element } from "./SelectedAttributeTypes_SubstringAssertion_Element";
+
+export type SelectedAttributeTypes_SubstringAssertion = SelectedAttributeTypes_SubstringAssertion_Element[];

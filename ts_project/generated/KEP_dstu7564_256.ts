@@ -1,0 +1,2 @@
+
+export const KEP_dstu7564_256 = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"member-body", 2}, {:NamedNumber, :ukraine, 804}, {:NamedNumber, :root, 2}, {:NamedNumber, :security, 1}, {:NamedNumber, :cryptography, 1}, {:NamedNumber, :pki, 1}, {:NamedNumber, :alg, 1}, {:NamedNumber, :hash, 2}, {:NamedNumber, :dstu7564, 2}, 1];

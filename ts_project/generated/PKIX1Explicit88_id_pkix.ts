@@ -1,0 +1,2 @@
+
+export const PKIX1Explicit88_id_pkix = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"identified-organization", 3}, {:NamedNumber, :dod, 6}, {:NamedNumber, :internet, 1}, {:NamedNumber, :security, 5}, {:NamedNumber, :mechanisms, 5}, {:NamedNumber, :pkix, 7}];

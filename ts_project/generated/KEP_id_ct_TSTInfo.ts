@@ -1,0 +1,2 @@
+
+export const KEP_id_ct_TSTInfo = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"member-body", 2}, {:NamedNumber, :us, 840}, {:NamedNumber, :rsadsi, 113549}, {:NamedNumber, :pkcs, 1}, {:NamedNumber, :"pkcs-9", 9}, {:NamedNumber, :smime, 16}, {:NamedNumber, :ct, 1}, 4];

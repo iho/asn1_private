@@ -1,0 +1,2 @@
+
+export const PKIXCRMF_2009_id_smime = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"member-body", 2}, {:NamedNumber, :us, 840}, {:NamedNumber, :rsadsi, 113549}, {:NamedNumber, :pkcs, 1}, {:NamedNumber, :pkcs9, 9}, 16];

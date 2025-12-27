@@ -1,0 +1,2 @@
+
+export type PKIXCMP_2009_INFO_TYPE_AND_VALUE = any;

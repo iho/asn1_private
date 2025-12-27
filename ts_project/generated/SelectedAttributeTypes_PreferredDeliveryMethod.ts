@@ -1,0 +1,4 @@
+
+import { SelectedAttributeTypes_PreferredDeliveryMethod_Element } from "./SelectedAttributeTypes_PreferredDeliveryMethod_Element";
+
+export type SelectedAttributeTypes_PreferredDeliveryMethod = SelectedAttributeTypes_PreferredDeliveryMethod_Element[];

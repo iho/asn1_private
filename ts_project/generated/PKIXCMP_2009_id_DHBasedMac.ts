@@ -1,0 +1,2 @@
+
+export const PKIXCMP_2009_id_DHBasedMac = [{:NamedNumber, :iso, 1}, {:NamedNumber, :"member-body", 2}, {:NamedNumber, :usa, 840}, {:NamedNumber, :nt, 113533}, {:NamedNumber, :nsn, 7}, {:NamedNumber, :algorithms, 66}, 30];

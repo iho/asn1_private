@@ -1,0 +1,4 @@
+
+import { SelectedAttributeTypes_OctetSubstringAssertion_Element } from "./SelectedAttributeTypes_OctetSubstringAssertion_Element";
+
+export type SelectedAttributeTypes_OctetSubstringAssertion = SelectedAttributeTypes_OctetSubstringAssertion_Element[];

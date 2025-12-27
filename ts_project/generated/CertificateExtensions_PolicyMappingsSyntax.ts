@@ -1,0 +1,4 @@
+
+import { CertificateExtensions_PolicyMappingsSyntax_Element } from "./CertificateExtensions_PolicyMappingsSyntax_Element";
+
+export type CertificateExtensions_PolicyMappingsSyntax = CertificateExtensions_PolicyMappingsSyntax_Element[];

@@ -1,0 +1,51 @@
+
+import { PKIXCRMF_2009_CertReqMessages } from "./PKIXCRMF_2009_CertReqMessages";
+import { PKIXCMP_2009_CertRepMessage } from "./PKIXCMP_2009_CertRepMessage";
+import { PKCS_10_CertificationRequest } from "./PKCS_10_CertificationRequest";
+import { PKIXCMP_2009_POPODecKeyChallContent } from "./PKIXCMP_2009_POPODecKeyChallContent";
+import { PKIXCMP_2009_POPODecKeyRespContent } from "./PKIXCMP_2009_POPODecKeyRespContent";
+import { PKIXCMP_2009_KeyRecRepContent } from "./PKIXCMP_2009_KeyRecRepContent";
+import { PKIXCMP_2009_RevReqContent } from "./PKIXCMP_2009_RevReqContent";
+import { PKIXCMP_2009_RevRepContent } from "./PKIXCMP_2009_RevRepContent";
+import { PKIXCMP_2009_CAKeyUpdAnnContent } from "./PKIXCMP_2009_CAKeyUpdAnnContent";
+import { PKIXCMP_2009_CertAnnContent } from "./PKIXCMP_2009_CertAnnContent";
+import { PKIXCMP_2009_RevAnnContent } from "./PKIXCMP_2009_RevAnnContent";
+import { PKIXCMP_2009_CRLAnnContent } from "./PKIXCMP_2009_CRLAnnContent";
+import { PKIXCMP_2009_PKIConfirmContent } from "./PKIXCMP_2009_PKIConfirmContent";
+import { PKIXCMP_2009_NestedMessageContent } from "./PKIXCMP_2009_NestedMessageContent";
+import { PKIXCMP_2009_GenMsgContent } from "./PKIXCMP_2009_GenMsgContent";
+import { PKIXCMP_2009_GenRepContent } from "./PKIXCMP_2009_GenRepContent";
+import { PKIXCMP_2009_ErrorMsgContent } from "./PKIXCMP_2009_ErrorMsgContent";
+import { PKIXCMP_2009_CertConfirmContent } from "./PKIXCMP_2009_CertConfirmContent";
+import { PKIXCMP_2009_PollReqContent } from "./PKIXCMP_2009_PollReqContent";
+import { PKIXCMP_2009_PollRepContent } from "./PKIXCMP_2009_PollRepContent";
+
+export interface PKIXCMP_2009_PKIBody {
+  ir?: PKIXCRMF_2009_CertReqMessages;
+  ip?: PKIXCMP_2009_CertRepMessage;
+  cr?: PKIXCRMF_2009_CertReqMessages;
+  cp?: PKIXCMP_2009_CertRepMessage;
+  p10cr?: PKCS_10_CertificationRequest;
+  popdecc?: PKIXCMP_2009_POPODecKeyChallContent;
+  popdecr?: PKIXCMP_2009_POPODecKeyRespContent;
+  kur?: PKIXCRMF_2009_CertReqMessages;
+  kup?: PKIXCMP_2009_CertRepMessage;
+  krr?: PKIXCRMF_2009_CertReqMessages;
+  krp?: PKIXCMP_2009_KeyRecRepContent;
+  rr?: PKIXCMP_2009_RevReqContent;
+  rp?: PKIXCMP_2009_RevRepContent;
+  ccr?: PKIXCRMF_2009_CertReqMessages;
+  ccp?: PKIXCMP_2009_CertRepMessage;
+  ckuann?: PKIXCMP_2009_CAKeyUpdAnnContent;
+  cann?: PKIXCMP_2009_CertAnnContent;
+  rann?: PKIXCMP_2009_RevAnnContent;
+  crlann?: PKIXCMP_2009_CRLAnnContent;
+  pkiconf?: PKIXCMP_2009_PKIConfirmContent;
+  nested?: PKIXCMP_2009_NestedMessageContent;
+  genm?: PKIXCMP_2009_GenMsgContent;
+  genp?: PKIXCMP_2009_GenRepContent;
+  error?: PKIXCMP_2009_ErrorMsgContent;
+  certconf?: PKIXCMP_2009_CertConfirmContent;
+  pollreq?: PKIXCMP_2009_PollReqContent;
+  pollrep?: PKIXCMP_2009_PollRepContent;
+}

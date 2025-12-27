@@ -1,0 +1,2 @@
+
+export const AuthenticationFramework_der = [{:Externalvaluereference, 77, :AuthenticationFramework, :"joint-iso-itu-t"}, {:NamedNumber, :asn1, 1}, {:NamedNumber, :"ber-derived", 2}, {:NamedNumber, :"distinguished-encoding", 1}];
