@@ -152,12 +152,20 @@ namespace DERDecoder {
         readTag(): { tagClass: number, constructed: boolean, tagNumber: number } {
             const byte = this.data[this.offset++];
             const tagClass = (byte >> 6) & 0x03;
-            const constructed = (byte & 0x20) !== 0;
+            const constructed = (byte & 0x20) !== 0; // 0x20 is bit 6 (0-indexed 5) for Constructed? No.
+            // Bit 8->1 (128, 64, 32, 16, 8, 4, 2, 1)
+            // Class: 7,6. Constructed: 5 (0x20). Tag: 4,3,2,1,0 (0x1F)
             let tagNumber = byte & 0x1f;
 
             if (tagNumber === 0x1f) {
-                // High tag parsing not implemented for minimal example, assuming low tags
-                throw new Error("High tag number parsing not implemented");
+                // High tag number
+                let n = 0;
+                while (true) {
+                    const b = this.data[this.offset++];
+                    n = (n << 7) | (b & 0x7f);
+                    if ((b & 0x80) === 0) break;
+                }
+                tagNumber = n;
             }
             return { tagClass, constructed, tagNumber };
         }
@@ -176,18 +184,20 @@ namespace DERDecoder {
             return len;
         }
 
-        readTLV(): { tag: { tagClass: number, constructed: boolean, tagNumber: number }, length: number, value: Uint8Array, valueOffset: number } {
+        readTLV(): { tag: { tagClass: number, constructed: boolean, tagNumber: number }, length: number, value: Uint8Array, valueOffset: number, fullBytes: Uint8Array } {
             const start = this.offset;
             const tag = this.readTag();
             const length = this.readLength();
+            // console.log(`  [Debug] Read TLV: Tag=${tag.tagNumber} Class=${tag.tagClass} Len=${length} Offset=${start}->${this.offset}`);
             const valueOffset = this.offset;
+            if (this.offset + length > this.data.length) {
+                console.error(`  [Debug] Error: Length ${length} exceeds bounds (offset ${this.offset}, total ${this.data.length})`);
+                throw new Error("TLV Length exceeds bounds");
+            }
             const value = this.data.slice(this.offset, this.offset + length);
             this.offset += length;
-            return { tag, length, value, valueOffset };
-        }
-
-        peekTag(): number {
-            return this.data[this.offset];
+            const fullBytes = this.data.slice(start, this.offset);
+            return { tag, length, value, valueOffset, fullBytes };
         }
 
         isAtEnd(): boolean {
@@ -195,51 +205,93 @@ namespace DERDecoder {
         }
     }
 
-    export function parsePKIMessage(data: Uint8Array) {
+    export function parsePKIMessage(data: Uint8Array): Uint8Array | null {
         const reader = new Reader(data);
         console.log("\n--- Parsing Response ---");
 
         // PKIMessage SEQUENCE
         const msg = reader.readTLV();
         if (msg.tag.tagNumber !== 16) throw new Error("Expected SEQUENCE (PKIMessage)");
-        console.log(`PKIMessage Sequence (${msg.length} bytes)`);
 
         const inner = new Reader(msg.value);
 
-        // 1. PKIHeader (SEQUENCE)
+        // 1. PKIHeader
         const header = inner.readTLV();
-        if (header.tag.tagNumber !== 16) throw new Error("Expected SEQUENCE (PKIHeader)");
         console.log(`  PKIHeader (${header.length} bytes)`);
 
-        // Parse Header content briefly? (PVNO, Sender, Recipient...)
-        const headerReader = new Reader(header.value);
-        const pvno = headerReader.readTLV(); // INTEGER
-        console.log(`    pvno: ${pvno.value[0]}`); // 2
-
-        const sender = headerReader.readTLV(); // GeneralName
-        console.log(`    sender: GeneralName len=${sender.length}`);
-
-        const recipient = headerReader.readTLV(); // GeneralName
-        console.log(`    recipient: GeneralName len=${recipient.length}`);
-
         // 2. PKIBody (CHOICE)
-        // [0] ip, [1] cp, [2] kup ... [23] error
         const bodyTLV = inner.readTLV();
-        console.log(`  PKIBody Tag=[${bodyTLV.tag.tagNumber}] Class=${bodyTLV.tag.tagClass} Len=${bodyTLV.length}`);
+        console.log(`  PKIBody Tag=[${bodyTLV.tag.tagNumber}] Len=${bodyTLV.length}`);
 
-        let bodyType = "Unknown";
-        switch (bodyTLV.tag.tagNumber) {
-            case 0: bodyType = "ir"; break;
-            case 1: bodyType = "ip"; break;
-            case 2: bodyType = "cr"; break;
-            case 3: bodyType = "cp"; break;
-            case 23: bodyType = "error"; break;
-            // ...
-        }
-        console.log(`    Type: ${bodyType}`);
+        // Tag 1 (ip) or Tag 3 (cp) are common for successful cert responses
+        if (bodyTLV.tag.tagNumber === 1 || bodyTLV.tag.tagNumber === 3) {
+            console.log("    Parsing CertRepMessage...");
+            // CertRepMessage ::= SEQUENCE { caPubs [1] ..., response SEQUENCE OF CertResponse }
+            const bodyReader = new Reader(bodyTLV.value);
 
-        // If Error, parse ErrorMsgContent
-        if (bodyTLV.tag.tagNumber === 23) {
+            // Check optional caPubs [1]
+            let nextTagObj = bodyReader.readTag();
+            bodyReader.offset -= 1; // Basic rewind just to peek (hacky but works if single byte tag)
+            // Better: Peek logic
+            const firstByte = bodyTLV.value[0];
+            let hasCaPubs = ((firstByte & 0x1f) === 1) && ((firstByte & 0xc0) === 0x80); // Context Specific [1]
+
+            if (hasCaPubs) {
+                const caPubs = bodyReader.readTLV();
+                console.log(`    Found caPubs [1] (${caPubs.length} bytes)`);
+            }
+
+            // response SEQUENCE OF CertResponse
+            const responseSeq = bodyReader.readTLV();
+            if (responseSeq.tag.tagNumber !== 16) throw new Error("Expected SEQUENCE OF CertResponse");
+
+            const responsesReader = new Reader(responseSeq.value);
+            // We expect at least one CertResponse
+            const certResp = responsesReader.readTLV();
+            console.log(`      CertResponse 1 (${certResp.length} bytes)`);
+
+            // CertResponse ::= SEQUENCE { certReqId INTEGER, status PKIStatusInfo, certifiedKeyPair CertifiedKeyPair OPTIONAL, ... }
+            console.log(`      CertResponse Value Len: ${certResp.value.length}`);
+            console.log(`      CertResponse Hex: ${Buffer.from(certResp.value.slice(0, 10)).toString('hex')}...`);
+            const crReader = new Reader(certResp.value);
+            const reqId = crReader.readTLV(); // INTEGER
+            console.log(`        certReqId: ${reqId.value[0]} (Len=${reqId.length})`);
+            console.log(`        After reqId, offset=${crReader.offset}`);
+
+            const statusInfo = crReader.readTLV(); // PKIStatusInfo
+            console.log(`        statusInfo keys=${Object.keys(statusInfo)}`);
+            console.log(`        statusInfo Tag=${statusInfo.tag.tagNumber} Len=${statusInfo.length}`);
+
+            // Check for CertifiedKeyPair
+            // CertifiedKeyPair ::= SEQUENCE { certOrEncCert CertOrEncCert, ... }
+            if (!crReader.isAtEnd()) {
+                const certifiedKeyPair = crReader.readTLV();
+                // Expect SEQUENCE (tag 16)
+                console.log(`        certifiedKeyPair len=${certifiedKeyPair.length} Tag=${certifiedKeyPair.tag.tagNumber}`);
+
+                const ckpReader = new Reader(certifiedKeyPair.value);
+                // CertOrEncCert ::= CHOICE { certificate [0] CMPCertificate, ... }
+                // CMPCertificate ::= Certificate (SEQUENCE)
+                // So we expect [0] EXPLICIT Certificate? Or [0] IMPLICIT?
+                // RFC 4210: certificate [0] CMPCertificate
+                // Usually explicit: Tag [0] means: Tag [0], Len, Content(CertificateTAG, Len, Bytes)
+                // Let's decode the content of [0]
+                const certOrEncCert = ckpReader.readTLV();
+                console.log(`          certOrEncCert Tag=[${certOrEncCert.tag.tagNumber}] Class=${certOrEncCert.tag.tagClass}`);
+
+                if (certOrEncCert.tag.tagNumber === 0 && certOrEncCert.tag.tagClass === 2) {
+                    // Verify if it's constructed (it should be, CHOICE/EXPLICIT)
+                    // If [0] contains the Certificate, the value bytes ARE the Certificate SEQUENCE?
+                    // Or is it nested? 
+                    const wrapperReader = new Reader(certOrEncCert.value);
+                    const certRaw = wrapperReader.readTLV(); // This should be the Certificate SEQUENCE (Tag 16)
+                    console.log(`            Extracted Certificate! (Tag=${certRaw.tag.tagNumber}, Len=${certRaw.length})`);
+                    return certRaw.fullBytes;
+                }
+            }
+        } else if (bodyTLV.tag.tagNumber === 23) {
+            console.log("    Error Body content.");
+            // If Error, parse ErrorMsgContent
             // ErrorMsgContent ::= SEQUENCE { pKIStatusInfo, errorCode, errorDetails }
             const errReader = new Reader(bodyTLV.value);
             const statusInfo = errReader.readTLV(); // PKIStatusInfo SEQUENCE
@@ -255,7 +307,7 @@ namespace DERDecoder {
             const failInfo = statusReader.isAtEnd() ? null : statusReader.readTLV();
             if (failInfo) console.log(`      FailInfo bits: ${failInfo.value[0].toString(2)}`);
         }
-
+        return null;
     }
 }
 
@@ -524,17 +576,49 @@ async function main() {
 
                     try {
                         console.log(`Attempting to parse ${currentData.length} bytes...`);
-                        DERDecoder.parsePKIMessage(currentData);
-                        console.log("Parsing successful! Closing connection.");
-                        reader.cancel(); // Stop reading
-                        break;
+                        const certBytes = DERDecoder.parsePKIMessage(currentData);
+
+                        if (certBytes) {
+                            console.log("Certificate extracted!");
+
+                            // Save to PEM
+                            const b64 = Buffer.from(certBytes).toString('base64');
+                            const pem = `-----BEGIN CERTIFICATE-----\n${b64.match(/.{1,64}/g)?.join('\n')}\n-----END CERTIFICATE-----\n`;
+
+                            // Bun.write needs to be used or just node fs.
+                            // Since we are in bun run, we can use Bun.write if types allow, or just console.log for now / fs
+                            // Let's use Bun.file if available or just FS
+                            // But better - just use fs/promises
+                            // Or better: console log it clearly first.
+                            console.log("\n" + pem);
+
+                            // To save file in Bun:
+                            // await Bun.write("robot_go.crt", pem);
+                            // But let's check if 'Bun' global is valid in TS context without types.
+                            // We use standard fs for safety if Bun types missing
+                            // Use import * as fs from 'fs'; 
+                            // But wait, we don't have fs imported.
+                            // We can use the global Bun.write 
+                            // @ts-ignore
+                            if (typeof Bun !== 'undefined') {
+                                // @ts-ignore
+                                await Bun.write("robot_go.crt", pem);
+                                console.log("Saved to robot_go.crt");
+                            }
+
+                            console.log("Parsing successful! Closing connection.");
+                            reader.cancel(); // Stop reading
+                            break;
+                        } else {
+                            // If it returned null but didn't throw, maybe it was an error message or incomplete?
+                            // If it was an Error Message (tag 23), parsePKIMessage logged it and returned null.
+                            // We should stop if it was an error message.
+                            // But parsePKIMessage logic for null could mean "parsed but no cert" (Error) 
+                            // OR "parsed partial" (not possible with current logic, throws if partial).
+                            // So if null, it was likely an Error response. We can stop.
+                        }
                     } catch (e) {
-                        // Verify if error is just "incomplete data" vs structure error?
-                        // For now, if it fails, we wait for more.
-                        // But if we have a full message, parsePKIMessage should return cleanly.
-                        // Note: DERDecoder.parsePKIMessage doesn't return anything, just logs.
-                        // We assume if it runs without throw, it's good.
-                        // WARNING: parsePKIMessage might not throw on trailing data or might throw on incomplete.
+                        // Incomplete data, keep reading
                     }
                 }
             }
