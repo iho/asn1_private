@@ -13,6 +13,10 @@ defmodule XSeries.Config do
       normalized = if String.ends_with?(output, "/"), do: output, else: output <> "/"
       Application.put_env(:asn1scg, "output", normalized)
     end
+
+    if System.get_env("ASN1_SINGLE_CRATE") == "true" do
+      Application.put_env(:asn1scg, :single_crate, true)
+    end
   end
 end
 
@@ -36,6 +40,11 @@ defmodule DependencyAnalyzer do
 
     case :asn1ct_parser2.parse(path, tokens) do
       {:ok, {:module, _pos, modname, _defid, _tagdefault, _exports, imports, _, _declarations}} ->
+        if String.contains?(path, "Document-Profile-Descriptor") do
+          IO.inspect(imports, label: "DEBUG IMPORTS for DPD")
+          IO.inspect(extract_imported_modules(imports), label: "DEBUG EXTRACTED")
+        end
+
         imported_modules = extract_imported_modules(imports)
         {normalize_name(modname), imported_modules}
 
@@ -47,7 +56,7 @@ defmodule DependencyAnalyzer do
 
   defp extract_imported_modules({:imports, imports_list}) when is_list(imports_list) do
     Enum.flat_map(imports_list, fn
-      {:SymbolsFromModule, _, _symbols, module, _objid} ->
+      {:SymbolsFromModule, _symbols, module, _objid} ->
         [normalize_name(import_module_name(module))]
 
       _ ->
@@ -58,7 +67,7 @@ defmodule DependencyAnalyzer do
 
   defp extract_imported_modules(imports) when is_list(imports) do
     Enum.flat_map(imports, fn
-      {:SymbolsFromModule, _, _symbols, module, _objid} ->
+      {:SymbolsFromModule, _symbols, module, _objid} ->
         [normalize_name(import_module_name(module))]
 
       _ ->
@@ -497,6 +506,16 @@ Application.put_env(:asn1scg, :GeneralNames, "PKIX1Implicit_2009_GeneralNames")
 
 Application.put_env(
   :asn1scg,
+  :InformationFramework_AttributeType,
+  "ASN1ObjectIdentifier"
+)
+
+Application.put_env(:asn1scg, :AttributeType, "ASN1ObjectIdentifier")
+Application.put_env(:asn1scg, :InformationFrameworkAttributeType, "ASN1ObjectIdentifier")
+Application.put_env(:asn1scg, :InformationFramework_AttributeType, "ASN1ObjectIdentifier")
+
+Application.put_env(
+  :asn1scg,
   :Document_Profile_Descriptor_Document_Profile_Descriptor_Document_Characteristics_alternative_feature_sets_Element,
   "ASN1ObjectIdentifier"
 )
@@ -619,16 +638,54 @@ Application.put_env(:asn1scg, :ptypes, ptypes)
 # Manual boxing entries for known recursive types
 # These are kept as overrides/supplements to automatic detection
 manual_boxing = [
-  # "Layout_Descriptors_Layout_Class_Descriptor_Body.generator_for_subordinates",
-  # "Layout_Descriptors_Layout_Class_Descriptor_Body.content_generator",
-  # "Layout_Descriptors_Layout_Class_Descriptor_Body.bindings",
-  # "Layout_Descriptors_Layout_Object_Descriptor_Body.bindings",
-  # "Layout_Descriptors_Layout_Class_Descriptor.descriptor_body",
-  # "Layout_Descriptors_Layout_Object_Descriptor.descriptor_body",
+  # Location Expressions recursive types - E0391 cycles
+  # These are ENUM VARIANTS that need boxing, not struct fields
+  # Enum variant containing SubprofileLocator
+  "LocationExpressionsConstituentLocator.Subprofile",
+  # Enum variant containing ConstituentLocator
+  "LocationExpressionsSubprofileLocator.SubprofileOf",
+  # Chain through BasicLocationExpression
+  "LocationExpressionsLocationExpression.Basic",
+  # Chain through CompositeLocationExpression
+  "LocationExpressionsLocationExpression.Basic",
+  "LocationExpressionsLocationExpression.Composite",
+  "LocationExpressionsConstituentLocator.Subprofile",
+  "LocationExpressionsSubprofileLocator.SubprofileOf",
+  "LocationExpressionsCompositeLocationExpression.Basic",
+  "LocationExpressionsCompositeLocationExpression.Composite",
+  "LocationExpressionsSubordArgument.Object",
+  "LocationExpressionsObjectWithArgument.Object",
+  "LocationExpressionsObjectLocator.Subord",
+  "LocationExpressionsStartEndObjectLocator.StartObject",
+  "LocationExpressionsStartEndObjectLocator.EndObject",
 
-  # # Reducing Layout Body Size
-  # "Layout_Descriptors_Layout_Class_Descriptor_Body.presentation_attributes",
-  # "Layout_Descriptors_Layout_Class_Descriptor_Body.default_value_lists",
+  # Identifiers and Expressions recursive types
+  "IdentifiersAndExpressionsObjectIdExpression.CurrentInstanceFunction",
+  "IdentifiersAndExpressionsObjectIdExpression.NumericExpression",
+  "IdentifiersAndExpressionsNumericExpression.IncrementApplication",
+  "IdentifiersAndExpressionsNumericExpression.DecrementApplication",
+  "IdentifiersAndExpressionsNumericExpression.NumericExpression",
+  "IdentifiersAndExpressionsNumericExpression.BindingExpression",
+  "IdentifiersAndExpressionsBindingSelectionFunction.SpecificApplication",
+  "IdentifiersAndExpressionsCurrentInstanceFunction.SecondParameter",
+
+  # Information Framework recursive types
+  "InformationFrameworkAttributeCombination.Not",
+  "InformationFrameworkContextCombination.Not",
+  "InformationFrameworkRequestAttribute.ContextCombination",
+  "InformationFrameworkSubtreeSpecification.SpecificationFilter",
+  "SelectedAttributeTypesCriteria.Not",
+
+  # Other detected cycles
+  "SubprofilesSubprofileDescriptor.DocumentFragmentReference",
+  "LinkDescriptorsLinkEnd.Reference",
+  "ISOSTANDARD9541FONTATTRIBUTESETModalProperties.NonIsoProperties",
+  "DirectoryAbstractServiceFamilyEntry.FamilyInfo",
+  "ANSIX942OtherInfo.SuppPubInfo",
+  "ANSIX942OtherInfo.SuppPrivInfo",
+  # Reducing Layout Body Size
+  "Layout_Descriptors_Layout_Class_Descriptor_Body.PresentationAttributes",
+  "Layout_Descriptors_Layout_Class_Descriptor_Body.DefaultValueLists"
   # "Layout_Descriptors_Layout_Object_Descriptor_Body.presentation_attributes",
   # "Layout_Descriptors_Layout_Object_Descriptor_Body.default_value_lists",
 
@@ -644,9 +701,9 @@ manual_boxing = [
   # "Identifiers_and_Expressions_Current_Instance_Function.second_parameter_expression"
 ]
 
+XSeries.Config.setup_lang_env()
 File.mkdir_p!("Sources/Suite/XSeries")
-base_output = System.get_env("ASN1_OUTPUT") || "Sources/Suite/XSeries/"
-Application.put_env(:asn1scg, "output", base_output)
+base_output = Application.get_env(:asn1scg, "output") || "Sources/Suite/"
 base_dir = "priv/x-series"
 
 # Get list of files
@@ -852,6 +909,23 @@ defmodule WorkspaceGenerator do
       |> Enum.uniq()
       |> Enum.sort()
 
+    if crate == "documentprofiledescriptor" do
+      IO.puts("DEBUG: analyzing dependencies for #{crate}")
+
+      Enum.each(crate_modules, fn mod ->
+        IO.inspect(mod, label: "Module")
+        imports = Map.get(deps, mod, [])
+        IO.inspect(imports, label: "Imports")
+
+        Enum.each(imports, fn imp ->
+          c = Map.get(mod_to_crate, imp)
+          IO.inspect({imp, c}, label: "Resolved Crate")
+        end)
+      end)
+
+      IO.inspect(crate_deps, label: "Calculated crate_deps")
+    end
+
     dep_section =
       crate_deps
       |> Enum.map(fn d -> "#{d} = { path = \"../#{d}\" }" end)
@@ -911,5 +985,7 @@ end
 
 if System.get_env("ASN1_LANG") == "rust" do
   output = System.get_env("ASN1_OUTPUT") || "Sources/Suite/"
-  WorkspaceGenerator.generate_workspace(files, base_dir, output, deps)
+
+  Code.require_file("lib/ASN1/SingleCrateGenerator.ex")
+  SingleCrateGenerator.generate_single_crate(files, output)
 end

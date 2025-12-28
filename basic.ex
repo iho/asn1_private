@@ -8,6 +8,11 @@ Code.require_file("lib/ASN1/SwiftEmitter.ex", ".")
 Code.require_file("lib/ASN1/RustEmitter.ex", ".")
 Code.require_file("lib/ASN1/C99Emitter.ex", ".")
 Code.require_file("lib/ASN1/WorkspaceGenerator.ex", ".")
+Code.require_file("lib/ASN1/SingleCrateGenerator.ex", ".")
+
+if System.get_env("ASN1_SINGLE_CRATE") == "true" do
+  Application.put_env(:asn1scg, :single_crate, true)
+end
 
 # ============================================================================
 # DependencyAnalyzer - Handles import parsing, topological sort, and cycle detection
@@ -710,11 +715,10 @@ Enum.each(files, fn filename ->
   ASN1.compile(true, path)
 end)
 
-# Generate Rust workspace after code generation (so cross-crate deps are tracked)
+# Generate code structure after generation
 if lang == "rust" do
-  workspace_root = Path.expand("asn1_suite")
-  File.mkdir_p!(Path.join(workspace_root, "crates"))
-  WorkspaceGenerator.generate_workspace(rust_modules, workspace_root, deps)
+  output = System.get_env("ASN1_OUTPUT") || "Sources/Suite/"
+  SingleCrateGenerator.generate_single_crate(rust_modules, output)
 end
 
 IO.puts("\n=== Complete ===")

@@ -1,0 +1,11 @@
+[package]
+name = "asn1_suite"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust-asn1 = { git = "https://github.com/iho/rust-asn1.git" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
