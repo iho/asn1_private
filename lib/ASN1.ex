@@ -6,6 +6,8 @@ defmodule ASN1 do
       "rust" -> ASN1.RustEmitter
       "kotlin" -> ASN1.KotlinEmitter
       "c99" -> ASN1.C99Emitter
+      "ts" -> ASN1.TSEmitter
+      "java" -> ASN1.JavaEmitter
       _ -> ASN1.SwiftEmitter
     end
   end
@@ -779,22 +781,25 @@ defmodule ASN1 do
     lang = :application.get_env(:asn1scg, :lang, "swift")
 
     final_dir =
-      if lang == "go" do
-        pkg = ASN1.GoEmitter.module_package(modname)
-        d = Path.join(dir, pkg)
-        :filelib.ensure_dir(Path.join(d, "stub"))
-        d <> "/"
-      else
-        if lang == "rust" do
+      cond do
+        lang == "go" ->
+          pkg = ASN1.GoEmitter.module_package(modname)
+          d = Path.join(dir, pkg)
+          :filelib.ensure_dir(Path.join(d, "stub"))
+          d <> "/"
+        lang == "java" ->
+           d = Path.join([dir, "src", "main", "java", "com", "generated", "asn1"])
+           :filelib.ensure_dir(Path.join(d, "stub"))
+           d <> "/"
+        lang == "rust" ->
           crate = ASN1.RustEmitter.module_crate(modname)
           d = Path.join([dir, "crates", crate, "src"])
           :filelib.ensure_dir(Path.join(d, "stub"))
           d <> "/"
-        else
+        true ->
           d = if String.ends_with?(dir, "/"), do: dir, else: dir <> "/"
           :filelib.ensure_dir(d)
           d
-        end
       end
 
     norm = normalizeName(bin(name))
@@ -843,38 +848,26 @@ defmodule ASN1 do
     fileName = final_dir_with_mod <> final_norm <> ext
     verbose = getEnv(:verbose, false)
 
-    case :lists.member(norm, exceptions()) do
-      true ->
-        print("skipping: ~ts~ts~n", [norm, ext])
-        setEnv(:verbose, verbose)
+    File.write!(fileName, res)
 
-      false ->
-        :ok = :file.write_file(fileName, res)
-        # For Rust, we also need to register this type in the module's mod.rs
-        if lang == "rust" do
-          mod_file = Path.join(final_dir_with_mod, "mod.rs")
-          module_snake = ASN1.RustEmitter.fieldName(norm)
-          line = "pub mod #{module_snake};\npub use #{module_snake}::*;\n"
+    # For Rust, we also need to register this type in the module's mod.rs
+    if lang == "rust" do
+      mod_file = Path.join(final_dir_with_mod, "mod.rs")
+      module_snake = ASN1.RustEmitter.fieldName(norm)
+      line = "pub mod #{module_snake};\npub use #{module_snake}::*;\n"
 
-          # Append if not present (simple check, or just append blindly if we assume cleaner run)
-          # Since we run x-series.ex multiple times in passes, we should check existence or overwrite behavior?
-          # Pass 3 generates code.
-          # Let's read and check to avoid duplicates.
-          if File.exists?(mod_file) do
-            existing = File.read!(mod_file)
+      if File.exists?(mod_file) do
+        existing = File.read!(mod_file)
 
-            unless String.contains?(existing, line) do
-              File.write!(mod_file, existing <> line)
-            end
-          else
-            File.write!(mod_file, line)
-          end
+        unless String.contains?(existing, line) do
+          File.write!(mod_file, existing <> line)
         end
-
-        setEnv(:verbose, true)
-        print("compiled: ~ts~n", [fileName])
-        setEnv(:verbose, verbose)
+      else
+        File.write!(mod_file, line)
+      end
     end
+
+    if verbose, do: IO.puts("compiled: #{fileName}")
   end
 
   def save(_, _, _, _), do: []
