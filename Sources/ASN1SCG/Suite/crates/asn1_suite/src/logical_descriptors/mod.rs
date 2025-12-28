@@ -1,0 +1,12 @@
+pub mod logicaldescriptorslogicalobjectdescriptor;
+pub use logicaldescriptorslogicalobjectdescriptor::*;
+pub mod logicaldescriptorslogicalobjecttype;
+pub use logicaldescriptorslogicalobjecttype::*;
+pub mod logicaldescriptorslogicalobjectdescriptorbody;
+pub use logicaldescriptorslogicalobjectdescriptorbody::*;
+pub mod logicaldescriptorslogicalclassdescriptor;
+pub use logicaldescriptorslogicalclassdescriptor::*;
+pub mod logicaldescriptorslogicalclassdescriptorbody;
+pub use logicaldescriptorslogicalclassdescriptorbody::*;
+pub mod logicaldescriptorsprotection;
+pub use logicaldescriptorsprotection::*;

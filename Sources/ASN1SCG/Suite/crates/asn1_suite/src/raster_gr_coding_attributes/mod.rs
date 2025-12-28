@@ -1,0 +1,10 @@
+pub mod rastergrcodingattributes;
+pub use rastergrcodingattributes::*;
+pub mod rastergrcodingattributescompression;
+pub use rastergrcodingattributescompression::*;
+pub mod rastergrcodingattributestiletype;
+pub use rastergrcodingattributestiletype::*;
+pub mod rastergrcodingattributesbitspercolourcomponent;
+pub use rastergrcodingattributesbitspercolourcomponent::*;
+pub mod rastergrcodingattributessubsampling;
+pub use rastergrcodingattributessubsampling::*;

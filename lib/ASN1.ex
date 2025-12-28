@@ -786,10 +786,18 @@ defmodule ASN1 do
         d <> "/"
       else
         if lang == "rust" do
-          crate = ASN1.RustEmitter.module_crate(modname)
-          d = Path.join([dir, "crates", crate, "src"])
-          :filelib.ensure_dir(Path.join(d, "stub"))
-          d <> "/"
+          single_crate = :application.get_env(:asn1scg, :single_crate, false)
+
+          if single_crate do
+            d = Path.join(dir, "src")
+            :filelib.ensure_dir(Path.join(d, "stub"))
+            d <> "/"
+          else
+            crate = ASN1.RustEmitter.module_crate(modname)
+            d = Path.join([dir, "crates", crate, "src"])
+            :filelib.ensure_dir(Path.join(d, "stub"))
+            d <> "/"
+          end
         else
           d = if String.ends_with?(dir, "/"), do: dir, else: dir <> "/"
           :filelib.ensure_dir(d)
@@ -831,11 +839,17 @@ defmodule ASN1 do
 
     final_dir_with_mod =
       if lang == "rust" do
-        # Use module name as subdirectory
-        mod_snake = ASN1.RustEmitter.fieldName(normalizeName(bin(modname)))
-        path = Path.join(final_dir, mod_snake)
-        :filelib.ensure_dir(Path.join(path, "stub"))
-        path <> "/"
+        single_crate = :application.get_env(:asn1scg, :single_crate, false)
+
+        if single_crate do
+          final_dir
+        else
+          # Use module name as subdirectory
+          mod_snake = ASN1.RustEmitter.fieldName(normalizeName(bin(modname)))
+          path = Path.join(final_dir, mod_snake)
+          :filelib.ensure_dir(Path.join(path, "stub"))
+          path <> "/"
+        end
       else
         final_dir
       end

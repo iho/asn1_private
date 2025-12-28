@@ -1,0 +1,6 @@
+pub mod rastergrprofileattributesragrcodingattribute;
+pub use rastergrprofileattributesragrcodingattribute::*;
+pub mod rastergrprofileattributesragrpresentationfeature;
+pub use rastergrprofileattributesragrpresentationfeature::*;
+pub mod rastergrprofileattributesrastergrcontentdefaults;
+pub use rastergrprofileattributesrastergrcontentdefaults::*;

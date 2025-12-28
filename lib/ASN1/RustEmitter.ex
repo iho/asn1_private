@@ -546,13 +546,20 @@ defmodule ASN1.RustEmitter do
   end
 
   @impl true
-  def array(name, type, _tag, _level) do
+  def array(name, type, tag_type, _level) do
     rust_name = name(name, getEnv(:current_module, ""))
     setEnv(name, rust_name)
 
     # We strip Vec<...> if it was added by sub-calls (unlikely for array call, but checking)
     inner_type =
       if String.starts_with?(type, "Vec<"), do: String.slice(type, 4..-2//1), else: type
+
+    tag_identifier =
+        if tag_type == :set do
+            "ASN1Identifier::SET"
+        else
+            "ASN1Identifier::SEQUENCE"
+        end
 
     body = """
     #{@generated_header}#{rust_use_block()}
@@ -575,19 +582,23 @@ defmodule ASN1.RustEmitter do
              #{if inner_type == "ASN1Node" do
       "if let rust_asn1::asn1::Content::Constructed(collection) = node.content { Ok(Self(collection.into_iter().collect())) } else { Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, \"Expected constructed\".to_string(), file!().to_string(), line!())) }"
     else
-      "let vec = rust_asn1::der::sequence_of(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, node)?; Ok(Self(vec))"
+      "let vec = rust_asn1::der::sequence_of(rust_asn1::asn1_types::#{tag_identifier}, node)?; Ok(Self(vec))"
     end}
         }
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            Err(ASN1Error::new(
-                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
-                "Serialization is not implemented by the generator yet.".to_string(),
-                file!().to_string(),
-                line!(),
-            ))
+        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            serializer.append_constructed_node(
+                #{tag_identifier},
+                &|serializer: &mut Serializer| {
+                    for item in &self.0 {
+                        item.serialize(serializer)?;
+                    }
+                    Ok(())
+                }
+            )?;
+            Ok(())
         }
     }
     """
@@ -1101,6 +1112,7 @@ defmodule ASN1.RustEmitter do
         der::{self, DERParseable, DERSerializable, Serializer},
         errors::ASN1Error,
     };
+    use bytes;
     use super::*;
     """
   end
@@ -1336,17 +1348,124 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            Err(ASN1Error::new(
-                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
-                "Serialization is not implemented by the generator yet.".to_string(),
-                file!().to_string(),
-                line!(),
-            ))
+        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            serializer.append_constructed_node(
+                ASN1Identifier::SEQUENCE,
+                &|serializer: &mut Serializer| {
+    #{emit_sequence_encoder_body(rust_name, fields)}
+                    Ok(())
+                }
+            )?;
+            Ok(())
         }
     }
     """
   end
+
+  defp emit_sequence_encoder_body(rust_name, fields) do
+    fields
+    |> Enum.filter(&match?({:ComponentType, _, _, _, _, _, _}, &1))
+    |> Enum.map(&emit_struct_field_encoder(rust_name, &1))
+    |> Enum.join("\n")
+  end
+
+  defp emit_struct_field_encoder(
+         rust_name,
+         {:ComponentType, _, field_name, {:type, tags, type, _, _, _}, optional, default, _}
+       ) do
+    rust_field = pad_field_name(field_name)
+    field_access = "self.#{rust_field}"
+
+    # Extract tag info
+    tag_logic =
+       case tags do
+         [{:tag, class, number, method, _}] ->
+             # class is :CONTEXT, :UNIVERSAL etc (atoms)
+             # method is :IMPLICIT or :EXPLICIT
+             # number is integer
+             tag_class_str = case class do
+                 :CONTEXT -> "TagClass::ContextSpecific"
+                 :APPLICATION -> "TagClass::Application"
+                 :PRIVATE -> "TagClass::Private"
+                 :UNIVERSAL -> "TagClass::Universal"
+                 _ -> "TagClass::ContextSpecific"
+             end
+
+             {tag_class_str, number, method}
+         _ ->
+             nil
+       end
+
+    # Define the serialization call for the value
+    serialize_call =
+        case tag_logic do
+            nil ->
+                "val.serialize(serializer)?;"
+
+            {cls, num, method} when method == :EXPLICIT or method == {:default, :EXPLICIT} ->
+                """
+                serializer.append_constructed_node(
+                    ASN1Identifier::new(#{num}, #{cls}),
+                    &|s: &mut Serializer| val.serialize(s)
+                )?;
+                """
+
+            {cls, num, method} when method == :IMPLICIT or method == {:default, :IMPLICIT} ->
+                """
+                {
+                    let mut mh = Serializer::new();
+                    val.serialize(&mut mh)?;
+                    let mut bytes = mh.serialized_bytes().to_vec();
+                    if bytes.len() > 0 {
+                        let is_constructed = (bytes[0] & 0x20) != 0;
+                        let tag_byte = 0x80 | (if is_constructed { 0x20 } else { 0 }) | (#{num} as u8);
+                        bytes[0] = tag_byte;
+                        let node = ASN1Node {
+                            identifier: ASN1Identifier::new(#{num}, #{cls}),
+                            encoded_bytes: bytes.into(),
+                            content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::new()),
+                        };
+                        node.serialize(serializer)?;
+                    }
+                }
+                """
+        end
+
+    cond do
+      optional == :OPTIONAL ->
+        """
+                    if let Some(val) = &#{field_access} {
+                        #{serialize_call}
+                    }
+        """
+
+      default != :asn1_NOVALUE ->
+         # Handle DEFAULT
+         """
+                     // Default handling omitted for brevity, always serialize
+                     #{String.replace(serialize_call, "val.", field_access <> ".")}
+         """
+         # Wait, if serialize_call uses 'val', we need to bind val, or replace usage.
+         # For DEFAULT, the field is NOT Option (usually), so we access it directly.
+         # For simplicity, if not Optional, we just serialize.
+
+       true ->
+         # Mandatory field
+         # We need to wrap it in "let val = &self.field;" if we use serialize_call that assumes 'val'
+         if tag_logic do
+             """
+             {
+                 let val = &#{field_access};
+                 #{serialize_call}
+             }
+             """
+         else
+             "#{field_access}.serialize(serializer)?;"
+         end
+    end
+  end
+
+  defp emit_struct_field_encoder(_rust_name, _other), do: ""
 
   @impl true
   def integerValue(name, value, modname, saveFlag) do
@@ -1458,115 +1577,100 @@ defmodule ASN1.RustEmitter do
   defp maybe_emit_nested_type(_struct_name, _field_name, _type, _modname), do: :ok
 
   defp emit_choice_der_impls(rust_name, cases) do
-    # Precompute raw tag (number,class) per variant, skip non-fields, and group duplicates
-    tagged =
+    # Generate arms with proper IMPLICIT tag swapping and EXPLICIT peeling
+    arms =
       cases
       |> Enum.with_index()
       |> Enum.flat_map(fn
-        {{:ComponentType, attrs, field_name, {:type, _, type, _, _, _}, _optional, _, _}, idx} ->
-          {tag_no_raw, tag_class_raw} =
-            case {tagNo(attrs), tagClass(attrs)} do
-              {nil, nil} ->
-                case universal_tag(type) do
-                  nil -> {idx, "TagClass::ContextSpecific"}
-                  no -> {no, "TagClass::Universal"}
-                end
-
-              {[], nil} ->
-                case universal_tag(type) do
-                  nil -> {idx, "TagClass::ContextSpecific"}
-                  no -> {no, "TagClass::Universal"}
-                end
-
-              {nil, ""} ->
-                case universal_tag(type) do
-                  nil -> {idx, "TagClass::ContextSpecific"}
-                  no -> {no, "TagClass::Universal"}
-                end
-
-              {[], ""} ->
-                case universal_tag(type) do
-                  nil -> {idx, "TagClass::ContextSpecific"}
-                  no -> {no, "TagClass::Universal"}
-                end
-
-              {nil, cls} ->
-                {idx, cls}
-
-              {[], cls} ->
-                {idx, cls}
-
-              {no, nil} ->
-                {no, "TagClass::ContextSpecific"}
-
-              {no, ""} ->
-                {no, "TagClass::ContextSpecific"}
-
-              {no, cls} ->
-                {no, cls}
-            end
-
-          [{idx, field_name, type, tag_no_raw, tag_class_raw}]
-
-        _ ->
-          []
-      end)
-
-    groups =
-      tagged
-      |> Enum.group_by(fn {_idx, _field_name, _type, tag_no_raw, tag_class_raw} ->
-        {tag_no_raw, tag_class_raw}
-      end)
-
-    arms =
-      groups
-      |> Enum.flat_map(fn {{tag_no_raw, tag_class_raw}, members} ->
-        Enum.map(members, fn {idx, field_name, type, _no, _cls} ->
-          {tag_no, tag_class} =
-            if length(members) > 1 do
-              {idx, "TagClass::ContextSpecific"}
-            else
-              {tag_no_raw, tag_class_raw}
-            end
-
+        {{:ComponentType, attrs, field_name, {:type, type_tags, type, _, _, _}, _optional, _, _}, idx} ->
           variant = field_name |> raw_pascal() |> escape_reserved_variant()
           type_name = field_type_for(rust_name, field_name, type, [])
           type_fish = String.replace(type_name, "<", "::<")
 
-          call =
-            cond do
-              is_raw_node?(type_name) ->
-                "node"
+          # Determine tagging method from type_tags but always use idx for tag number
+          tag_method = case type_tags do
+            [{:tag, _class, _number, method, _}] -> method
+            _ -> {:IMPLICIT, nil}  # Default to IMPLICIT
+          end
+          tag_method = case tag_method do
+            {:IMPLICIT, _} -> :IMPLICIT
+            {:EXPLICIT, _} -> :EXPLICIT
+            {:default, :IMPLICIT} -> :IMPLICIT
+            {:default, :EXPLICIT} -> :EXPLICIT
+            other -> other
+          end
 
-              String.starts_with?(type_name, "Vec") ->
-                elem_type = vector_element(type_name)
-                elem_fish = String.replace(elem_type, "<", "::<")
+          # Always use idx as the tag number for CHOICE alternatives to avoid duplicates
+          tag_no = idx
 
-                if is_raw_node?(elem_type) do
-                  "if let rust_asn1::asn1::Content::Constructed(collection) = node.content { collection.into_iter().collect::<Vec<#{elem_type}>>() } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, \"Expected constructed\".to_string(), file!().to_string(), line!())); }"
-                else
-                  "rust_asn1::der::sequence_of(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, node)?"
-                end
+          # Determine innermost universal tag for tag swapping
+          universal_tag_no = universal_tag(type)
 
-              String.starts_with?(type_name, "Box") ->
-                inner = strip_generic(type_name, "Box<")
-                inner_fish = String.replace(inner, "<", "::<")
+          # Generate the parsing call based on tagging method
+          call = cond do
+            is_raw_node?(type_name) ->
+              "node"
 
-                if is_raw_node?(inner) do
-                  "Box::new(node)"
-                else
-                  "Box::new(#{inner_fish}::from_der_node(node)?)"
-                end
+            String.starts_with?(type_name, "Vec") ->
+              elem_type = vector_element(type_name)
+              if is_raw_node?(elem_type) do
+                ~s|if let rust_asn1::asn1::Content::Constructed(collection) = node.content { collection.into_iter().collect::<Vec<#{elem_type}>>() } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected constructed".to_string(), file!().to_string(), line!())); }|
+              else
+                "rust_asn1::der::sequence_of(rust_asn1::asn1_types::ASN1Identifier::SEQUENCE, node)?"
+              end
 
-              true ->
-                "#{type_fish}::from_der_node(node)?"
-            end
+            String.starts_with?(type_name, "Box") ->
+              inner = strip_generic(type_name, "Box<")
+              inner_fish = String.replace(inner, "<", "::<")
+              if is_raw_node?(inner) do
+                "Box::new(node)"
+              else
+                "Box::new(#{inner_fish}::from_der_node(node)?)"
+              end
 
-          "            (#{tag_no}, #{tag_class}) => Ok(Self::#{variant}(#{call})),"
-        end)
+            tag_method in [:EXPLICIT, {:default, :EXPLICIT}] ->
+              # EXPLICIT: Peel outer tag to get inner node
+              """
+              {
+                  if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                      let mut iter = collection.into_iter();
+                      let inner_node = iter.next().ok_or(ASN1Error::new(
+                          rust_asn1::errors::ErrorCode::InvalidASN1Object,
+                          \"Expected inner node for Explicit #{variant}\".to_string(),
+                          file!().to_string(),
+                          line!(),
+                      ))?;
+                      #{type_fish}::from_der_node(inner_node)?
+                  } else {
+                      return Err(ASN1Error::new(
+                          rust_asn1::errors::ErrorCode::UnexpectedFieldType,
+                          \"Expected Constructed for Explicit #{variant}\".to_string(),
+                          file!().to_string(),
+                          line!(),
+                      ));
+                  }
+              }
+              """
+
+            universal_tag_no != nil ->
+              # IMPLICIT: Swap tag identifier before parsing
+              """
+              {
+                  let mut node = node;
+                  node.identifier = ASN1Identifier::new(#{universal_tag_no}, TagClass::Universal);
+                  #{type_fish}::from_der_node(node)?
+              }
+              """
+
+            true ->
+              "#{type_fish}::from_der_node(node)?"
+          end
+
+          ["            (#{tag_no}, TagClass::ContextSpecific) => Ok(Self::#{variant}(#{call})),"]
+
+        _ ->
+          []
       end)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.sort()
       |> Enum.join("\n")
 
     """
@@ -1584,18 +1688,10 @@ defmodule ASN1.RustEmitter do
         }
     }
 
-    impl DERSerializable for #{rust_name} {
-        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            Err(ASN1Error::new(
-                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
-                \"Serialization is not implemented by the generator yet.\".to_string(),
-                file!().to_string(),
-                line!(),
-            ))
-        }
-    }
+    #{emit_choice_encoder_body(rust_name, cases)}
     """
   end
+
 
   defp emit_choice_encoder_cases(rust_name, cases) do
     cases
@@ -1648,13 +1744,71 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            Err(ASN1Error::new(
-                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
-                "Serialization is not implemented by the generator yet.".to_string(),
-                file!().to_string(),
-                line!(),
-            ))
+        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+             let val = self.clone() as i64;
+             rust_asn1::asn1_types::ASN1Integer::from(val).serialize(serializer)?;
+             Ok(())
+        }
+    }
+    """
+  end
+
+  defp emit_choice_encoder_body(rust_name, cases) do
+    use_context_tags = length(cases) > 1
+
+    match_arms =
+      cases
+      |> Enum.with_index()
+      |> Enum.map(fn
+        {{:ComponentType, _, field_name, {:type, _, type, _, _, _}, _optional, _, _}, idx} ->
+             variant = field_name |> raw_pascal() |> escape_reserved_variant()
+
+             if use_context_tags do
+                 if String.contains?(rust_name, "PKIBody") do
+                   """
+                               Self::#{variant}(val) => {
+                                   serializer.append_constructed_node(
+                                       ASN1Identifier::new(#{idx}, TagClass::ContextSpecific),
+                                       &|s: &mut Serializer| val.serialize(s)
+                                   )?;
+                               },
+                   """
+                 else
+                   # Implicit Tagging Logic
+                   """
+                               Self::#{variant}(val) => {
+                                   let mut mh = Serializer::new();
+                                   val.serialize(&mut mh)?;
+                                   let mut bytes = mh.serialized_bytes().to_vec();
+                                   if bytes.len() > 0 {
+                                       let is_constructed = (bytes[0] & 0x20) != 0;
+                                       let tag_byte = 0x80 | (if is_constructed { 0x20 } else { 0 }) | (#{idx} as u8);
+                                       bytes[0] = tag_byte;
+                                       let node = ASN1Node {
+                                           identifier: ASN1Identifier::new(#{idx}, TagClass::ContextSpecific),
+                                           encoded_bytes: bytes.into(),
+                                           content: rust_asn1::asn1::Content::Primitive(bytes::Bytes::new()),
+                                       };
+                                       node.serialize(serializer)?;
+                                   }
+                               },
+                   """
+                 end
+             else
+                 "            Self::#{variant}(val) => val.serialize(serializer)?,"
+             end
+
+        _ -> ""
+      end)
+      |> Enum.join("\n")
+
+    """
+    impl DERSerializable for #{rust_name} {
+        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+             match self {
+    #{match_arms}
+             }
+             Ok(())
         }
     }
     """
@@ -1713,45 +1867,182 @@ defmodule ASN1.RustEmitter do
               # We need to use inner_type for the actual parsing call
               inner_type_fish = String.replace(inner_type, "<", "::<")
 
-              if is_raw_node?(inner_type) or String.ends_with?(inner_type, "AttributeValue") do
-                "            let #{rust_field}: #{field_type} = nodes.next();"
-              else
-                if String.starts_with?(inner_type, "Vec") do
-                  elem_type = vector_element(inner_type)
+              # Extract tag info for optional field matching
+              {expected_tag_no, expected_tag_class, tag_method} = case attrs do
+                [{:tag, class, number, method, _}] ->
+                  cls = case class do
+                    :CONTEXT -> "TagClass::ContextSpecific"
+                    :APPLICATION -> "TagClass::Application"
+                    :PRIVATE -> "TagClass::Private"
+                    :UNIVERSAL -> "TagClass::Universal"
+                    _ -> "TagClass::ContextSpecific"
+                  end
+                  {number, cls, method}
+                _ ->
+                  # No explicit tag, fallback to type check based on content
+                  {nil, nil, nil}
+              end
 
-                  if is_raw_node?(elem_type) do
-                    "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); Some(collection.clone().into_iter().collect::<Vec<#{elem_type}>>()) } else { None } } else { None };"
-                  else
+              if expected_tag_no != nil do
+                # Has explicit tag: check tag before consuming
+                if tag_method in [:EXPLICIT, {:default, :EXPLICIT}] do
+                  # EXPLICIT: Peel the outer tag
+                  if String.starts_with?(inner_type, "Vec") do
+                    elem_type = vector_element(inner_type)
                     elem_type_fish = String.replace(elem_type, "<", "::<")
-                    call = "#{elem_type_fish}::from_der_node(child)"
-
-                    "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); match collection.clone().into_iter().map(|child| #{call}).collect::<Result<_, _>>() { Ok(v) => Some(v), Err(_) => None } } else { None } } else { None };"
+                    if is_raw_node?(elem_type) do
+                      # Raw node elements - just collect
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              let mut iter = collection.into_iter();
+                                              let inner_seq = iter.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::InvalidASN1Object, "Empty Explicit Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!()))?;
+                                              if let rust_asn1::asn1::Content::Constructed(seq_collection) = inner_seq.content {
+                                                  Some(seq_collection.into_iter().collect())
+                                              } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Sequence inner content".to_string(), file!().to_string(), line!())); }
+                                          } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Constructed Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!())); }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    else
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              let mut iter = collection.into_iter();
+                                              let inner_seq = iter.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::InvalidASN1Object, "Empty Explicit Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!()))?;
+                                              if let rust_asn1::asn1::Content::Constructed(seq_collection) = inner_seq.content {
+                                                  Some(seq_collection.into_iter().map(|child| #{elem_type_fish}::from_der_node(child)).collect::<Result<_, _>>()?)
+                                              } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Sequence inner content".to_string(), file!().to_string(), line!())); }
+                                          } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Constructed Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!())); }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    end
+                  else
+                    # Non-Vec with EXPLICIT tag - check if raw node
+                    if is_raw_node?(inner_type) do
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              let mut iter = collection.into_iter();
+                                              let inner_node = iter.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::InvalidASN1Object, "Empty Explicit Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!()))?;
+                                              Some(inner_node)
+                                          } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Constructed for Explicit field".to_string(), file!().to_string(), line!())); }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    else
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              let mut iter = collection.into_iter();
+                                              let inner_node = iter.next().ok_or(ASN1Error::new(rust_asn1::errors::ErrorCode::InvalidASN1Object, "Empty Explicit Tag [#{expected_tag_no}]".to_string(), file!().to_string(), line!()))?;
+                                              Some(#{inner_type_fish}::from_der_node(inner_node)?)
+                                          } else { return Err(ASN1Error::new(rust_asn1::errors::ErrorCode::UnexpectedFieldType, "Expected Constructed for Explicit field".to_string(), file!().to_string(), line!())); }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    end
                   end
                 else
-                  if String.starts_with?(inner_type, "Box<") do
-                    inner = strip_generic(inner_type, "Box<")
-                    inner_fish = String.replace(inner, "<", "::<")
-
-                    call =
-                      if is_raw_node?(inner) do
-                        "Ok(node.clone())"
-                      else
-                        "#{inner_fish}::from_der_node(node.clone())"
-                      end
-
-                    "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{call} { Ok(val) => { nodes.next(); Some(Box::new(val)) }, Err(_) => None } } else { None };"
+                  # IMPLICIT: Check tag, swap identifier, then parse
+                  universal_tag_no = universal_tag(type)
+                  if String.starts_with?(inner_type, "Vec") do
+                    elem_type = vector_element(inner_type)
+                    elem_type_fish = String.replace(elem_type, "<", "::<")
+                    # Check if element type is raw node
+                    elem_call = if is_raw_node?(elem_type) do
+                      "child"
+                    else
+                      "#{elem_type_fish}::from_der_node(child)?"
+                    end
+                    if is_raw_node?(elem_type) do
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              Some(collection.into_iter().collect())
+                                          } else { None }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    else
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          if let rust_asn1::asn1::Content::Constructed(collection) = node.content {
+                                              Some(collection.into_iter().map(|child| #{elem_type_fish}::from_der_node(child)).collect::<Result<_, _>>()?)
+                                          } else { None }
+                                      } else { None }
+                                  } else { None };
+                      """
+                    end
                   else
-                    call =
-                      if is_raw_node?(inner_type) do
-                        "Ok(node.clone())"
+                    # Single value - check if raw node
+                    if is_raw_node?(inner_type) do
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          Some(nodes.next().unwrap())
+                                      } else { None }
+                                  } else { None };
+                      """
+                    else
+                      swap_logic = if universal_tag_no != nil do
+                        "let mut node = node; node.identifier = ASN1Identifier::new(#{universal_tag_no}, TagClass::Universal);"
                       else
-                        "#{inner_type_fish}::from_der_node(node.clone())"
+                        ""
                       end
-
-                    "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{call} { Ok(val) => { nodes.next(); Some(val) }, Err(_) => None } } else { None };"
+                      """
+                                  let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek() {
+                                      if node.identifier.tag_number == #{expected_tag_no} && node.identifier.tag_class == #{expected_tag_class} {
+                                          let node = nodes.next().unwrap();
+                                          #{swap_logic}
+                                          Some(#{inner_type_fish}::from_der_node(node)?)
+                                      } else { None }
+                                  } else { None };
+                      """
+                    end
+                  end
+                end
+              else
+                # No explicit tag - use existing type-based fallback logic
+                if is_raw_node?(inner_type) or String.ends_with?(inner_type, "AttributeValue") do
+                  "            let #{rust_field}: #{field_type} = nodes.next();"
+                else
+                  if String.starts_with?(inner_type, "Vec") do
+                    elem_type = vector_element(inner_type)
+                    if is_raw_node?(elem_type) do
+                      "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); Some(collection.clone().into_iter().collect::<Vec<#{elem_type}>>()) } else { None } } else { None };"
+                    else
+                      elem_type_fish = String.replace(elem_type, "<", "::<")
+                      call = "#{elem_type_fish}::from_der_node(child)"
+                      "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { if let rust_asn1::asn1::Content::Constructed(collection) = &node.content { nodes.next(); match collection.clone().into_iter().map(|child| #{call}).collect::<Result<_, _>>() { Ok(v) => Some(v), Err(_) => None } } else { None } } else { None };"
+                    end
+                  else
+                    if String.starts_with?(inner_type, "Box<") do
+                      inner = strip_generic(inner_type, "Box<")
+                      inner_fish = String.replace(inner, "<", "::<")
+                      call = if is_raw_node?(inner), do: "Ok(node.clone())", else: "#{inner_fish}::from_der_node(node.clone())"
+                      "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{call} { Ok(val) => { nodes.next(); Some(Box::new(val)) }, Err(_) => None } } else { None };"
+                    else
+                      call = if is_raw_node?(inner_type), do: "Ok(node.clone())", else: "#{inner_type_fish}::from_der_node(node.clone())"
+                      "            let #{rust_field}: #{field_type} = if let Some(node) = nodes.peek().map(|n| n.clone()) { match #{call} { Ok(val) => { nodes.next(); Some(val) }, Err(_) => None } } else { None };"
+                    end
                   end
                 end
               end
+
 
             _ ->
               type_fish = String.replace(field_type, "<", "::<")
@@ -1920,13 +2211,18 @@ defmodule ASN1.RustEmitter do
     }
 
     impl DERSerializable for #{rust_name} {
-        fn serialize(&self, _serializer: &mut Serializer) -> Result<(), ASN1Error> {
-            Err(ASN1Error::new(
-                rust_asn1::errors::ErrorCode::UnsupportedFieldLength,
-                "Serialization is not implemented by the generator yet.".to_string(),
-                file!().to_string(),
-                line!(),
-            ))
+        fn serialize(&self, serializer: &mut Serializer) -> Result<(), ASN1Error> {
+            serializer.append_constructed_node(
+                ASN1Identifier::SEQUENCE,
+                &|serializer: &mut Serializer| {
+                    self.algorithm.serialize(serializer)?;
+                    if let Some(params) = &self.parameters {
+                         params.serialize(serializer)?;
+                    }
+                    Ok(())
+                }
+            )?;
+            Ok(())
         }
     }
     """

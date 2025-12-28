@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export ASN1_OUTPUT="Sources/Suite"
 rustup component add rustc-codegen-cranelift
 # Run for basic modules
 echo "Cleaning generated code..."

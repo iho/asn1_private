@@ -29,10 +29,16 @@ defmodule SingleCrateGenerator do
 
     [dependencies]
     rust-asn1 = { git = "https://github.com/iho/rust-asn1.git" }
+    bytes = "1.0"
+    chrono = "0.4"
 
     [dev-dependencies]
     reqwest = { version = "0.12", features = ["json"] }
     tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+    sha2 = "0.10"
+    p384 = "0.13"
+    rand = "0.8"
+    hmac = "0.12"
     """
 
     path = Path.join(output_dir, "Cargo.toml")

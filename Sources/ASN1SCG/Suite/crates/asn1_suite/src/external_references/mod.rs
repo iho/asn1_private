@@ -1,0 +1,12 @@
+pub mod externalreferenceslist;
+pub use externalreferenceslist::*;
+pub mod externalreferenceslistelement;
+pub use externalreferenceslistelement::*;
+pub mod externalreferencesreferencename;
+pub use externalreferencesreferencename::*;
+pub mod externalreferencesexternalentity;
+pub use externalreferencesexternalentity::*;
+pub mod externalreferencesexternalinformationname;
+pub use externalreferencesexternalinformationname::*;
+pub mod externalreferencesassociatedinformationname;
+pub use externalreferencesassociatedinformationname::*;
