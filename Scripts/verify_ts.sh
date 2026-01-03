@@ -1,5 +1,5 @@
-sh clean.sh
-sh rebuild_ts.sh
+sh Scripts/clean.sh
+sh Scripts/rebuild_ts.sh
 
 cd Languages/TypeScript
 git clone https://github.com/iho/der.ts

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-sh clean.sh
-sh rebuild_rust.sh
+sh Scripts/clean.sh
+sh Scripts/rebuild_rust.sh
 
 cd Languages/Rust
 cargo test
