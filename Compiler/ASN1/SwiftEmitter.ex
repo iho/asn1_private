@@ -782,8 +782,12 @@ import Foundation
                   found when is_binary(found) -> found
                   _ -> name(ref_name, getEnv(:current_module, ""))
               end
+          {:valueset, _} ->
+              # ValueSets cannot be represented as a single Int constant.
+              # We return a placeholder to allow compilation to proceed.
+              "0 /* ValueSet definition skipped */"
           _ when is_integer(val) -> val
-          _ -> val
+          _ -> val # Fallback for other types, hoping they are stringifiable
       end
       save(saveFlag, modname, swiftName, """
 #{emitImprint()}
