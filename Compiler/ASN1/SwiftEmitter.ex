@@ -1078,7 +1078,7 @@ public let #{swiftName}: Int = #{resolved_val}
       "let #{n}: ASN1Any? = nodes.next().map { ASN1Any(derEncoded: $0) }"
   end
   def emitSequenceDecoderBodyElement(_, _, _, name, "Bool"), do:
-      "let #{name}: Bool = try DER.decodeDefault(&nodes, defaultValue: false)"
+      "let #{fieldName(name)}: Bool = try DER.decodeDefault(&nodes, defaultValue: false)"
   def emitSequenceDecoderBodyElement(:OPTIONAL, _, _, name, type) do
       n = fieldName(name)
       boxed = isBoxed(getEnv(:current_struct, ""), name)

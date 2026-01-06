@@ -90,6 +90,15 @@ defmodule ASN1.RustEmitter do
       "crate::algorithm_information2009__algorithm::AlgorithmInformation2009_Algorithm",
     "AlgorithmInformation2009Algorithm" =>
       "crate::algorithm_information2009__algorithm::AlgorithmInformation2009_Algorithm",
+
+    # DSTU has its own type definitions - map to local DSTU types
+    "DSTUAlgorithmIdentifier" => "crate::dstu__algorithm_identifier::DSTU_AlgorithmIdentifier",
+    "DSTU_AlgorithmIdentifier" => "crate::dstu__algorithm_identifier::DSTU_AlgorithmIdentifier",
+    "DSTUSubjectPublicKeyInfo" => "crate::dstu__subject_public_key_info::DSTU_SubjectPublicKeyInfo",
+    "DSTU_SubjectPublicKeyInfo" => "crate::dstu__subject_public_key_info::DSTU_SubjectPublicKeyInfo",
+    "DSTUAuthenticationFrameworkAlgorithmIdentifier" => "crate::dstu__algorithm_identifier::DSTU_AlgorithmIdentifier",
+    "DSTU_AuthenticationFrameworkAlgorithmIdentifier" => "crate::dstu__algorithm_identifier::DSTU_AlgorithmIdentifier",
+
     # SubjectPublicKeyInfo mappings
     "SubjectPublicKeyInfo" =>
       "crate::pkix1_explicit88__subject_public_key_info::PKIX1Explicit88_SubjectPublicKeyInfo",
