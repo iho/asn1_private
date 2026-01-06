@@ -1489,6 +1489,10 @@ defmodule ASN1.RustEmitter do
 
     val_str =
       case value do
+        {:valueset, _} ->
+          # Value sets cannot be directly represented as Rust constants
+          "0 /* valueset - not representable */"
+
         {:Externalvaluereference, _, mod, val_name} ->
           # Assuming the external module is imported or we can reference it fully qualified
           # For simplicity, let's try to map it to the generated name
@@ -1528,7 +1532,7 @@ defmodule ASN1.RustEmitter do
 
         _ ->
           # Fallback for other potential types, or error
-          inspect(value)
+          "0 /* unsupported value type */"
       end
 
     const_body = """
