@@ -4,8 +4,8 @@ Code.require_file("Compiler/ASN1/Emitter.ex", ".")
 Code.require_file("Compiler/ASN1.ex", ".")
 Code.require_file("Compiler/ASN1/SwiftEmitter.ex", ".")
 Code.require_file("Compiler/ASN1/GoEmitter.ex", ".")
+Code.require_file("Compiler/ASN1/DependentType.ex", ".")
 Code.require_file("Compiler/ASN1/RustEmitter.ex", ".")
-Code.require_file("Compiler/ASN1/C99Emitter.ex", ".")
 Code.require_file("Compiler/ASN1/TSEmitter.ex", ".")
 Code.require_file("Compiler/ASN1/JavaEmitter.ex", ".")
 Code.require_file("Compiler/ASN1/SingleCrateGenerator.ex", ".")
@@ -662,7 +662,9 @@ manual_boxing = [
   "LocationExpressions_LocationExpression.Composite",
   "LocationExpressions_CompositeLocationExpression.Complement",
   "LocationExpressions_CompositeLocationExpression.Intersection",
-  "LocationExpressions_CompositeLocationExpression.Union"
+  "LocationExpressions_CompositeLocationExpression.Union",
+  "PKIXCMP2009_PKIMessage.body",
+  "PKIXCMP2009_PKIMessage.Body"
 ]
 
 # File.mkdir_p!("Languages/AppleSwift/Generated")
@@ -758,5 +760,7 @@ Enum.each(files, fn filename ->
   ASN1.compile(true, path)
 end)
 
+Application.put_env(:asn1scg, :verbose, true)
+ASN1.dump()
 ASN1.emitter().finalize()
 IO.puts("\n=== Complete ===")

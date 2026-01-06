@@ -31,6 +31,7 @@ defmodule SingleCrateGenerator do
     rust-asn1 = { git = "https://github.com/iho/rust-asn1.git" }
     bytes = "1.0"
     chrono = "0.4"
+    lazy_static = "1.4"
 
     [dev-dependencies]
     reqwest = { version = "0.12", features = ["json"] }
@@ -69,6 +70,7 @@ defmodule SingleCrateGenerator do
     #![allow(non_camel_case_types)]
 
     pub const PKCS9_UBNAME: i64 = 32768; // UB-name default value
+    pub const NIL: () = ();
 
     #{mod_declarations}
     """

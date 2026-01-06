@@ -176,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pkix_msg = PKIXCMP2009_PKIMessage::new(
         header,
-        p10cr_body,
+        Box::new(p10cr_body),
         Some(protection),
         None
     );
@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let resp_msg = PKIXCMP2009_PKIMessage::from_der_node(node)?;
         println!("Successfully decoded response!");
         println!("Response PVNO: {:?}", resp_msg.header.pvno);
-        match resp_msg.body {
+        match *resp_msg.body {
              PKIXCMP2009_PKIBody::Cp(_) => println!("Body is CP (Certification Response)"),
              PKIXCMP2009_PKIBody::Error(_) => println!("Body is Error Message"),
              _ => println!("Body is {:?}", resp_msg.body),
